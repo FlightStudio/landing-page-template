@@ -1,0 +1,9 @@
+node_modules
+dist
+.git
+.env
+*.json
+!package.json
+!package-lock.json
+stitch-desktop.html
+stitch-mobile.html
