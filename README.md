@@ -6,37 +6,40 @@ Build, preview, and deploy landing pages and quizzes for Flight Studio brands. P
 
 ## Setup (one-time)
 
-### 1. Prerequisites
+### 1. Install Claude Desktop
 
-- **Claude Desktop** — download from [claude.ai/download](https://claude.ai/download)
-- **Node.js** (v18+) — download from [nodejs.org](https://nodejs.org) (LTS version)
+Download and install from [claude.ai/download](https://claude.ai/download). Sign in with your Anthropic account. Open it once so it creates its config folder.
 
-Check Node is installed:
+### 2. Install Node.js
+
+Download from [nodejs.org](https://nodejs.org) (LTS version). Verify it's installed:
 ```bash
 node --version
 ```
 
-### 2. Clone this repo
+### 3. Clone this repo
 
 ```bash
 git clone https://github.com/FlightStudio/landing-page-template.git
 ```
 
-### 3. Configure the Campaign Studio MCP
+### 4. Configure the Campaign Studio MCP
 
-This connects Claude Desktop to the deployment server so you can deploy, set up domains, and check SSL — all from within Claude.
+This connects Claude to the deployment server so you can deploy, set up domains, and check SSL — all from within Claude.
 
-Open (or create) the file:
+You need to edit the file `claude_desktop_config.json` inside Claude's config folder. **Finder hides this folder** — use one of these methods to get to it:
+
+**Option A** — In Finder, press **Cmd+Shift+G** and paste:
 ```
-~/Library/Application Support/Claude/claude_desktop_config.json
+~/Library/Application Support/Claude/
 ```
 
-On Mac, the easiest way:
+**Option B** — In Terminal, run:
 ```bash
 open ~/Library/Application\ Support/Claude/
 ```
 
-Paste this into the file:
+Open `claude_desktop_config.json` in a text editor. If the file doesn't exist, create it. Paste this:
 ```json
 {
   "mcpServers": {
@@ -51,11 +54,11 @@ Paste this into the file:
 }
 ```
 
-> **Note:** If the file already has content, merge the `campaign-studio` entry into the existing `mcpServers` object — don't replace the whole file.
+> **Note:** If the file already has content (e.g. a `preferences` section), merge the `mcpServers` block into the existing JSON — don't replace the whole file.
 
 **Restart Claude Desktop** after saving.
 
-### 4. Verify it works
+### 5. Verify it works
 
 1. Open Claude Desktop
 2. Open the `landing-page-template` folder as a project (File > Open Folder)
