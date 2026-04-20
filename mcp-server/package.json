@@ -1,0 +1,16 @@
+{
+  "name": "landing-pages-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for scaffolding, deploying, and managing Flight Studio landing page campaigns",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "express": "^4.21.2",
+    "google-auth-library": "^9.15.1",
+    "tar": "^7.5.13"
+  }
+}

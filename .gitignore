@@ -3,3 +3,9 @@ dist/
 .DS_Store
 .env
 *.json.key
+
+# MCP server credentials (only config.example.json is committed)
+mcp-server/credentials/config.json
+mcp-server/credentials/*.json
+!mcp-server/credentials/config.example.json
+!mcp-server/credentials/.gitkeep

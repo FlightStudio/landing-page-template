@@ -23,40 +23,20 @@ node --version
 git clone https://github.com/FlightStudio/landing-page-template.git
 ```
 
-### 4. Configure the Campaign Studio MCP
+### 4. Add the Campaign Studio connector
 
 This connects Claude to the deployment server so you can deploy, set up domains, and check SSL — all from within Claude.
 
-You need to edit the file `claude_desktop_config.json` inside Claude's config folder. **Finder hides this folder** — use one of these methods to get to it:
+1. Open Claude Desktop
+2. Go to **Settings** (gear icon) > **Connectors**
+3. Click the **+** button
+4. Fill in:
+   - **Name**: `Campaign Studio`
+   - **Remote MCP server URL**: `https://campaign-studio-30219985459.europe-west1.run.app/mcp`
+   - Leave OAuth fields blank
+5. Click **Add**
 
-**Option A** — In Finder, press **Cmd+Shift+G** and paste:
-```
-~/Library/Application Support/Claude/
-```
-
-**Option B** — In Terminal, run:
-```bash
-open ~/Library/Application\ Support/Claude/
-```
-
-Open `claude_desktop_config.json` in a text editor. If the file doesn't exist, create it. Paste this:
-```json
-{
-  "mcpServers": {
-    "campaign-studio": {
-      "type": "streamable-http",
-      "url": "https://campaign-studio-30219985459.europe-west1.run.app/mcp",
-      "headers": {
-        "Authorization": "Bearer T8rw0Z-IgXQZtwSMf4AqTAT_340RIblbf7UanyHC4hI"
-      }
-    }
-  }
-}
-```
-
-> **Note:** If the file already has content (e.g. a `preferences` section), merge the `mcpServers` block into the existing JSON — don't replace the whole file.
-
-**Restart Claude Desktop** after saving.
+You should see 6 tools appear: `deploy_landing_page`, `update_landing_page`, `upload_asset`, `setup_domain`, `check_ssl_status`, `list_brands`.
 
 ### 5. Verify it works
 
@@ -119,25 +99,34 @@ To add a new brand, create a new file in `src/brands/` following the same struct
 
 ```
 landing-page-template/
-├── .claude/commands/        # Claude commands (/new-campaign, learnings)
+├── .claude/commands/           # Claude skills
+│   ├── new-campaign.md         #   /new-campaign conversation flow
+│   └── CAMPAIGN_LEARNINGS.md   #   accumulated build learnings
+├── mcp-server/                 # Campaign Studio MCP server
+│   ├── server.js               #   MCP tools (deploy, domains, SSL)
+│   ├── Dockerfile              #   Cloud Run container
+│   ├── setup.sh                #   one-time setup
+│   ├── test-apis.js            #   integration tests
+│   └── credentials/            #   config (gitignored)
 ├── scripts/
-│   └── scaffold.sh          # Creates new campaign projects
+│   └── scaffold.sh             # Creates new campaign projects
 ├── src/
-│   ├── brands/              # Brand presets (DOAC, WNTT, etc.)
-│   ├── quiz-templates/      # Quiz components (used by --type quiz)
-│   ├── campaign.config.js   # Campaign-specific config (TODO template)
-│   ├── main.jsx             # App entry (signup flow)
-│   ├── LandingPage.jsx      # Signup page component
-│   ├── SignupForm.jsx        # Form with Klaviyo integration
-│   ├── VariantRedirect.jsx   # A/B variant router
-│   ├── CookieConsent.jsx     # Cookie banner
-│   ├── consent.js            # Analytics init (RudderStack, Meta Pixel, Klaviyo)
-│   ├── klaviyo.js            # Klaviyo subscribe + profile update
-│   └── theme.js              # Applies brand colours/fonts as CSS variables
-├── public/assets/            # Brand logos + campaign media
-├── index.html                # HTML shell (OG tags injected at build)
-├── vite.config.js            # Build config + OG tag plugin
-├── Dockerfile                # Production container (nginx)
+│   ├── brands/                 # Brand presets (DOAC, WNTT, etc.)
+│   ├── quiz-templates/         # Quiz components (used by --type quiz)
+│   ├── campaign.config.js      # Campaign-specific config (TODO template)
+│   ├── main.jsx                # App entry (signup flow)
+│   ├── LandingPage.jsx         # Signup page component
+│   ├── SignupForm.jsx          # Form with Klaviyo integration
+│   ├── VariantRedirect.jsx     # A/B variant router
+│   ├── CookieConsent.jsx       # Cookie banner
+│   ├── consent.js              # Analytics init (RudderStack, Meta Pixel, Klaviyo)
+│   ├── klaviyo.js              # Klaviyo subscribe + profile update
+│   └── theme.js                # Applies brand colours/fonts as CSS variables
+├── public/assets/              # Brand logos + campaign media
+├── index.html                  # HTML shell (OG tags injected at build)
+├── vite.config.js              # Build config + OG tag plugin
+├── Dockerfile                  # Production container (nginx)
+├── HANDOVER.md                 # Technical handover document
 └── package.json
 ```
 
