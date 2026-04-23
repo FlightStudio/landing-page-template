@@ -1,9 +1,11 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { readFileSync, writeFileSync, mkdirSync, cpSync, existsSync, readdirSync, rmSync } from "fs";
-import { join } from "path";
+import { join, resolve, dirname } from "path";
+import { fileURLToPath } from "url";
 import { GoogleAuth } from "google-auth-library";
 import { create as createTar } from "tar";
 import { Writable } from "stream";
@@ -11,6 +13,9 @@ import { pipeline } from "stream/promises";
 import dns from "dns/promises";
 import express from "express";
 import { randomUUID } from "crypto";
+
+const STDIO_MODE = process.argv.includes("--stdio");
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // ── Environment config ──────────────────────────────────────────────────────
 const GCP_PROJECT = process.env.GCP_PROJECT;
@@ -20,7 +25,8 @@ const GODADDY_KEY = process.env.GODADDY_KEY;
 const GODADDY_SECRET = process.env.GODADDY_SECRET;
 const DOMAINS = JSON.parse(process.env.DOMAINS_JSON || "{}");
 const GCS_BUCKET = process.env.GCS_BUCKET || `${GCP_PROJECT}_campaign-studio`;
-const TEMPLATE_DIR = "/template";
+// In stdio mode, use the repo root; on Cloud Run, use /template
+const TEMPLATE_DIR = STDIO_MODE ? resolve(__dirname, "..") : "/template";
 const PORT = parseInt(process.env.PORT || "8080", 10);
 
 // ── GCP Auth (credentials from env, not keyFile) ────────────────────────────
@@ -854,9 +860,16 @@ app.post("/messages", authMiddleware, async (req, res) => {
   await transport.handlePostMessage(req, res);
 });
 
-app.listen(PORT, () => {
-  console.log(`Campaign Studio MCP server listening on port ${PORT}`);
-  console.log(`Health:         http://localhost:${PORT}/health`);
-  console.log(`MCP (HTTP):     http://localhost:${PORT}/mcp`);
-  console.log(`MCP (SSE):      http://localhost:${PORT}/sse`);
-});
+if (STDIO_MODE) {
+  const transport = new StdioServerTransport();
+  const server = createMcpServer();
+  await server.connect(transport);
+  console.error(`Campaign Studio MCP (stdio) — template: ${TEMPLATE_DIR}`);
+} else {
+  app.listen(PORT, () => {
+    console.log(`Campaign Studio MCP server listening on port ${PORT}`);
+    console.log(`Health:         http://localhost:${PORT}/health`);
+    console.log(`MCP (HTTP):     http://localhost:${PORT}/mcp`);
+    console.log(`MCP (SSE):      http://localhost:${PORT}/sse`);
+  });
+}

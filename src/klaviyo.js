@@ -6,6 +6,17 @@ import {
   CAMPAIGN_NAME,
 } from "./campaign.config";
 
+const NATIONAL_LENGTHS = {
+  "+44": [10], "+1": [10], "+353": [9], "+61": [9], "+64": [8, 9],
+  "+91": [10], "+49": [10, 11], "+33": [9], "+34": [9], "+39": [9, 10],
+  "+31": [9], "+46": [9], "+47": [8], "+45": [8], "+358": [9, 10],
+  "+48": [9], "+41": [9], "+43": [10, 11], "+32": [9], "+351": [9],
+  "+30": [10], "+90": [10], "+971": [9], "+966": [9], "+27": [9],
+  "+234": [10], "+254": [9], "+55": [10, 11], "+52": [10], "+81": [10],
+  "+82": [10], "+86": [11], "+65": [8], "+60": [9, 10], "+63": [10],
+  "+66": [9], "+852": [8], "+62": [10, 12],
+};
+
 /**
  * Normalise a phone number to E.164 format.
  * @param {string} raw - User-entered phone number
@@ -13,23 +24,18 @@ import {
  * Returns null if the result doesn't look valid.
  */
 export function normalisePhone(raw, dialCode) {
-  // Strip spaces, dashes, brackets
   let digits = raw.replace(/[\s\-().]/g, "");
-  // If user typed with a leading +, use as-is
   if (digits.startsWith("+")) {
     // already has country code
   } else {
-    // Strip leading 0 (local format) then prepend dial code
-    if (digits.startsWith("0")) {
-      digits = digits.slice(1);
-    }
+    if (digits.startsWith("0")) digits = digits.slice(1);
     digits = dialCode + digits;
   }
-  // Basic sanity: must be + followed by 7-15 digits
-  if (/^\+\d{7,15}$/.test(digits)) {
-    return digits;
-  }
-  return null;
+  if (!/^\+\d{7,15}$/.test(digits)) return null;
+  const nationalDigits = digits.slice(dialCode.length);
+  const expected = NATIONAL_LENGTHS[dialCode];
+  if (expected && !expected.includes(nationalDigits.length)) return null;
+  return digits;
 }
 
 /**
