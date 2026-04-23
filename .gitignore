@@ -4,8 +4,11 @@ dist/
 .env
 *.json.key
 
-# MCP server credentials (only config.example.json is committed)
+# MCP config (contains credentials when running locally)
+.mcp.json
+
+# MCP server credentials (config.json is not committed, SA key is)
 mcp-server/credentials/config.json
-mcp-server/credentials/*.json
 !mcp-server/credentials/config.example.json
+!mcp-server/credentials/steven-warehouse-dev*.json
 !mcp-server/credentials/.gitkeep
