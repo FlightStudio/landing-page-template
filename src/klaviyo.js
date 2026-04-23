@@ -12,48 +12,6 @@ import {
  * @param {string} dialCode - Country dial code including "+" (e.g. "+44")
  * Returns null if the result doesn't look valid.
  */
-// Expected national digit lengths (after removing leading 0, before adding dial code)
-const NATIONAL_LENGTHS = {
-  "+44": [10],       // UK: 07XXX XXXXXX
-  "+1": [10],        // US/CA: (XXX) XXX-XXXX
-  "+353": [9],       // IE: 08X XXX XXXX
-  "+61": [9],        // AU: 04XX XXX XXX
-  "+64": [8, 9],     // NZ: 02X XXX XXXX or 02XX XXX XXXX
-  "+91": [10],       // IN: XXXXX XXXXX
-  "+49": [10, 11],   // DE: varies
-  "+33": [9],        // FR: 06 XX XX XX XX
-  "+34": [9],        // ES: 6XX XXX XXX
-  "+39": [9, 10],    // IT: 3XX XXX XXXX
-  "+31": [9],        // NL: 06 XXXX XXXX
-  "+46": [9],        // SE
-  "+47": [8],        // NO
-  "+45": [8],        // DK
-  "+358": [9, 10],   // FI
-  "+48": [9],        // PL
-  "+41": [9],        // CH
-  "+43": [10, 11],   // AT
-  "+32": [9],        // BE
-  "+351": [9],       // PT
-  "+30": [10],       // GR
-  "+90": [10],       // TR
-  "+971": [9],       // AE
-  "+966": [9],       // SA
-  "+27": [9],        // ZA
-  "+234": [10],      // NG
-  "+254": [9],       // KE
-  "+55": [10, 11],   // BR
-  "+52": [10],       // MX
-  "+81": [10],       // JP
-  "+82": [10],       // KR
-  "+86": [11],       // CN
-  "+65": [8],        // SG
-  "+60": [9, 10],    // MY
-  "+63": [10],       // PH
-  "+66": [9],        // TH
-  "+852": [8],       // HK
-  "+62": [10, 12],   // ID
-};
-
 export function normalisePhone(raw, dialCode) {
   // Strip spaces, dashes, brackets
   let digits = raw.replace(/[\s\-().]/g, "");
@@ -67,17 +25,11 @@ export function normalisePhone(raw, dialCode) {
     }
     digits = dialCode + digits;
   }
-  // Must be + followed by digits
-  if (!/^\+\d{7,15}$/.test(digits)) {
-    return null;
+  // Basic sanity: must be + followed by 7-15 digits
+  if (/^\+\d{7,15}$/.test(digits)) {
+    return digits;
   }
-  // Check national length matches expected for this country
-  const nationalDigits = digits.slice(dialCode.length);
-  const expected = NATIONAL_LENGTHS[dialCode];
-  if (expected && !expected.includes(nationalDigits.length)) {
-    return null;
-  }
-  return digits;
+  return null;
 }
 
 /**
