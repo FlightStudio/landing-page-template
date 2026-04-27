@@ -36,7 +36,11 @@ This connects Claude to the deployment server so you can deploy, set up domains,
    - Leave OAuth fields blank
 5. Click **Add**
 
-You should see 6 tools appear: `deploy_landing_page`, `update_landing_page`, `upload_asset`, `setup_domain`, `check_ssl_status`, `list_brands`.
+You should see 11 tools appear. Two main flows:
+
+- **Standard signup pages** (DOAC / WNTT): `list_brands`, `deploy_landing_page`, `update_landing_page`, `upload_asset`, `teardown_landing_page`.
+- **Custom-coded pages** (bespoke designs, ticket pages, anything outside the signup template): `upload_dist`, `deploy_custom_page`, `update_custom_page`, `teardown_custom_page`.
+- **Shared** (work for both): `setup_domain`, `check_ssl_status`.
 
 ### 5. Verify it works
 
@@ -101,6 +105,8 @@ Under the hood Claude will:
 **Signup page** — email capture with headline, body copy, background media, A/B variant support. Good for competitions, waitlists, event signups.
 
 **Quiz** — email gate followed by multiple-choice questions, scoring, and personalised results. Good for personality quizzes, recommendation engines, interactive content.
+
+**Custom design** — anything bespoke that doesn't fit the signup-page mould (Eventbrite checkout, brand outside DOAC/WNTT, hand-coded layout, page exported from Lovable / v0 / Figma). Build the project locally with `npm run build`, then Claude uses `upload_dist` + `deploy_custom_page` to ship it to the same Cloud Run / domain stack as standard pages. No Klaviyo wiring, no scaffold. See [MCP_CUSTOM_PAGE_PLAN.md](MCP_CUSTOM_PAGE_PLAN.md) for the architecture.
 
 ---
 
@@ -205,11 +211,12 @@ Everything below is pre-wired. You don't need to set any of it up manually — j
 
 Deployment is handled by the **Campaign Studio MCP** — Claude does this for you during the `/new-campaign` flow. You don't need to run any deploy commands manually.
 
-Behind the scenes, it:
-1. Builds the Vite app
-2. Packages it in an nginx Docker container
-3. Deploys to Google Cloud Run
-4. Returns a live URL
+There are two deploy modes, picked automatically based on your campaign type:
+
+- **Standard signup** (`deploy_landing_page`) — Claude generates a `campaign.config.js` from your brief, packages the baked-in signup template, builds via Cloud Build (~2 min), and ships to Cloud Run.
+- **Custom design** (`upload_dist` + `deploy_custom_page`) — Claude runs `npm run build` in your project, uploads the `dist/` to GCS, and the MCP wraps it in `nginx:alpine` and ships to Cloud Run (~30s, no `npm ci` step).
+
+Either way you get back a live `*.run.app` URL, and `setup_domain` works the same on both.
 
 ### Custom domains
 

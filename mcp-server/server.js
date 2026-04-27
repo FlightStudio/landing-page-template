@@ -7,8 +7,8 @@ import { readFileSync, writeFileSync, mkdirSync, cpSync, existsSync, readdirSync
 import { join, resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { GoogleAuth } from "google-auth-library";
-import { create as createTar } from "tar";
-import { Writable } from "stream";
+import { create as createTar, x as extractTar } from "tar";
+import { Writable, Readable } from "stream";
 import { pipeline } from "stream/promises";
 import dns from "dns/promises";
 import express from "express";
@@ -28,6 +28,10 @@ const GCS_BUCKET = process.env.GCS_BUCKET || `${GCP_PROJECT}_campaign-studio`;
 // In stdio mode, use the repo root; on Cloud Run, use /template
 const TEMPLATE_DIR = STDIO_MODE ? resolve(__dirname, "..") : "/template";
 const PORT = parseInt(process.env.PORT || "8080", 10);
+
+// Resolve mcp-server-local templates directory (used by buildAndDeployCustom for custom-page mode).
+// Reuses __dirname declared above for STDIO_MODE handling.
+const TEMPLATES_DIR = join(__dirname, "templates");
 
 // ── GCP Auth (credentials from env, not keyFile) ────────────────────────────
 let _gcpCredentials = null;
@@ -191,6 +195,17 @@ async function gcsList(prefix) {
   return (data.items || []).map((i) => i.name);
 }
 
+async function gcsDelete(objectName) {
+  const token = await getGcpAccessToken();
+  const res = await fetch(
+    `https://storage.googleapis.com/storage/v1/b/${GCS_BUCKET}/o/${encodeURIComponent(objectName)}`,
+    { method: "DELETE", headers: { Authorization: `Bearer ${token}` } }
+  );
+  // 404 = already gone; treat as success
+  if (!res.ok && res.status !== 404) throw new Error(`GCS delete failed: ${await res.text()}`);
+  return res.ok || res.status === 404;
+}
+
 // ── Cloud Build + Deploy API (pure REST) ─────────────────────────────────────
 
 async function createSourceTarball(projectPath) {
@@ -203,6 +218,13 @@ async function createSourceTarball(projectPath) {
     collector
   );
   return Buffer.concat(chunks);
+}
+
+async function extractTarball(buffer, destDir) {
+  await pipeline(
+    Readable.from([buffer]),
+    extractTar({ cwd: destDir })
+  );
 }
 
 async function triggerCloudBuild(bucket, objectName, imageTag) {
@@ -425,6 +447,71 @@ async function buildAndDeploy(opts) {
   }
 }
 
+// ── Custom-page build + deploy helper ───────────────────────────────────────
+async function buildAndDeployCustom(opts) {
+  const steps = [];
+  const serviceName = opts.serviceName;
+  const ts = Date.now();
+  const imageTag = `gcr.io/${GCP_PROJECT}/${serviceName}:${ts}`;
+  const buildBucket = `${GCP_PROJECT}_cloudbuild`;
+  const objectName = `source/${serviceName}-custom-${ts}.tar.gz`;
+  const tmpDir = `/tmp/_build_custom_${serviceName}_${ts}`;
+  mkdirSync(tmpDir, { recursive: true });
+
+  try {
+    // 1. Untar uploaded dist into tmpDir/dist/
+    const distRes = await gcsDownload(opts.distObjectName);
+    if (!distRes) throw new Error(`Dist ${opts.distObjectName} not found in GCS.`);
+    const distBuffer = Buffer.from(await distRes.arrayBuffer());
+    const distOutDir = join(tmpDir, "dist");
+    mkdirSync(distOutDir, { recursive: true });
+    await extractTarball(distBuffer, distOutDir);
+
+    // Sanity check — a real frontend dist must have an index.html at the root
+    if (!existsSync(join(distOutDir, "index.html"))) {
+      throw new Error(`Uploaded dist for '${serviceName}' has no index.html at the root. Did you tar from inside the dist/ directory? Use: tar -czf - -C dist . | base64`);
+    }
+    steps.push("Dist extracted.");
+
+    // 2. Write the static Dockerfile + nginx.conf from baked templates
+    const dockerfileSrc = readFileSync(join(TEMPLATES_DIR, "custom-page", "Dockerfile.template"), "utf-8");
+    const nginxSrc = readFileSync(join(TEMPLATES_DIR, "custom-page", "nginx.conf"), "utf-8");
+    writeFileSync(join(tmpDir, "Dockerfile"), dockerfileSrc);
+    writeFileSync(join(tmpDir, "nginx.conf"), nginxSrc);
+
+    // 3. Tarball, upload, build, deploy — same shape as buildAndDeploy
+    const tarBuffer = await createSourceTarball(tmpDir);
+    steps.push(`Packaged (${(tarBuffer.length / 1024).toFixed(0)} KB).`);
+
+    const token = await getGcpAccessToken();
+    const uploadRes = await fetch(
+      `https://storage.googleapis.com/upload/storage/v1/b/${buildBucket}/o?uploadType=media&name=${encodeURIComponent(objectName)}`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/gzip", "Content-Length": String(tarBuffer.length) },
+        body: tarBuffer,
+      }
+    );
+    if (!uploadRes.ok) throw new Error(`GCS upload failed: ${await uploadRes.text()}`);
+    steps.push("Uploaded to Cloud Storage.");
+
+    const buildOp = await triggerCloudBuild(buildBucket, objectName, imageTag);
+    steps.push("Cloud Build started (~30s)...");
+    await waitForBuild(buildOp.name);
+    steps.push(`Image built: ${imageTag}`);
+
+    const servicePath = await deployToCloudRun(serviceName, imageTag);
+    steps.push("Deployed to Cloud Run.");
+    await setPublicAccess(servicePath);
+    const serviceUrl = await getServiceUrl(servicePath);
+    steps.push(`Live at: ${serviceUrl}`);
+
+    return { steps, serviceUrl };
+  } finally {
+    try { rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+  }
+}
+
 // ── MCP Server Factory ─────────────────────────────────────────────────────
 const SERVER_INSTRUCTIONS = `You help people at Flight Studio create landing pages for their brands (The Diary of a CEO, We Need To Talk, and others).
 
@@ -460,7 +547,7 @@ META PIXEL — this is already in the brand preset. Don't ask about it unless it
 
 function createMcpServer() {
   const s = new McpServer(
-    { name: "campaign-studio", version: "2.1.0" },
+    { name: "campaign-studio", version: "2.2.0" },
     { instructions: SERVER_INSTRUCTIONS }
   );
   registerTools(s);
@@ -745,6 +832,215 @@ server.tool(
     }
 
     return { content: [{ type: "text", text: [`SSL status for https://${fullDomain}`, ``, ...checks].join("\n") }] };
+  }
+);
+
+// ── Tool: upload_dist ───────────────────────────────────────────────────────
+server.tool(
+  "upload_dist",
+  `Upload a built static frontend (Vite dist/, Next.js out/, etc.) for a custom-page deploy.
+Send a base64-encoded gzipped tarball of the dist directory contents. Use the tar-from-inside-dist recipe so files land at the archive root (not nested under a wrapping folder):
+  tar -czf - -C dist . | base64
+The dist will be picked up by the next deploy_custom_page or update_custom_page call for this serviceName.`,
+  {
+    serviceName: z.string().describe("Cloud Run service name (lowercase, hyphenated). Same name used in deploy_custom_page."),
+    base64Tarball: z.string().describe("Base64-encoded gzipped tarball of the local dist/ directory contents."),
+  },
+  async ({ serviceName, base64Tarball }) => {
+    try {
+      const buffer = Buffer.from(base64Tarball, "base64");
+      const MAX_BYTES = 25 * 1024 * 1024;
+      if (buffer.length > MAX_BYTES) {
+        return { content: [{ type: "text", text: `Dist tarball is ${(buffer.length / 1024 / 1024).toFixed(1)} MB — over the 25 MB cap. This usually means node_modules or source files got tarred. Re-run the recipe: \`tar -czf - -C dist . | base64\`` }], isError: true };
+      }
+      const ts = Date.now();
+      const objectName = `dist/${serviceName}/${ts}.tar.gz`;
+      await gcsUpload(objectName, buffer, "application/gzip");
+      return {
+        content: [{
+          type: "text",
+          text: `Uploaded dist (${(buffer.length / 1024).toFixed(0)} KB) for ${serviceName}.\nUse deploy_custom_page (first time) or update_custom_page (subsequent deploys) next.`,
+        }],
+      };
+    } catch (err) {
+      return { content: [{ type: "text", text: `Upload failed: ${err.message}` }], isError: true };
+    }
+  }
+);
+
+// ── Tool: deploy_custom_page ────────────────────────────────────────────────
+server.tool(
+  "deploy_custom_page",
+  `First-time deploy of a custom-built static page to Cloud Run. Wraps the latest uploaded dist in nginx:alpine, deploys to Cloud Run, returns the live URL (~30s).
+Use this for bespoke campaigns (custom layout, custom flows, non-standard signup). For DOAC/WNTT-style signup pages use deploy_landing_page instead.
+Requires upload_dist to have been called first for the same serviceName.`,
+  {
+    serviceName: z.string().describe("Cloud Run service name (lowercase, hyphenated). Must match the upload_dist serviceName."),
+    pageTitle: z.string().describe("Browser tab title (already baked into the dist; stored here as metadata)."),
+    ogUrl: z.string().optional().describe("Canonical URL for og:url, once a domain is set up. Optional on first deploy."),
+  },
+  async (params) => {
+    try {
+      const objects = await gcsList(`dist/${params.serviceName}/`);
+      if (objects.length === 0) {
+        return { content: [{ type: "text", text: `No dist uploaded for '${params.serviceName}'. Run upload_dist first.` }], isError: true };
+      }
+      const latest = objects.sort().pop();
+
+      // Soft guard against a name collision with a standard-flow campaign
+      const standardConfig = await gcsDownloadJson(`configs/${params.serviceName}.json`);
+      if (standardConfig) {
+        return { content: [{ type: "text", text: `Service '${params.serviceName}' already exists as a standard signup campaign. Pick a different serviceName, or use update_landing_page if you meant to update the existing one.` }], isError: true };
+      }
+
+      const config = { ...params, latestDist: latest, deployedAt: new Date().toISOString() };
+      await gcsUpload(`custom-configs/${params.serviceName}.json`, Buffer.from(JSON.stringify(config, null, 2)), "application/json");
+
+      const { steps, serviceUrl } = await buildAndDeployCustom({ ...params, distObjectName: latest });
+
+      return {
+        content: [{
+          type: "text",
+          text: [
+            `Custom page deployed!`, ``, ...steps, ``,
+            `Preview: ${serviceUrl}`,
+            ``,
+            `To redeploy after rebuilding locally: upload_dist then update_custom_page.`,
+            `To add a custom domain: setup_domain.`,
+            `To remove everything: teardown_custom_page.`,
+          ].join("\n"),
+        }],
+      };
+    } catch (err) {
+      return { content: [{ type: "text", text: `Deployment failed: ${err.message}` }], isError: true };
+    }
+  }
+);
+
+// ── Tool: update_custom_page ────────────────────────────────────────────────
+server.tool(
+  "update_custom_page",
+  `Redeploy an existing custom page. Picks up the latest dist from upload_dist, builds, deploys to the same URL.
+Important: deploys whatever's in the latest upload_dist call. Run \`npm run build\` and re-upload the dist before this to ship local edits.`,
+  {
+    serviceName: z.string().describe("The service name used at first deploy."),
+    ogUrl: z.string().optional().describe("Updated og:url if the domain has been set up since the first deploy."),
+  },
+  async (params) => {
+    try {
+      const existing = await gcsDownloadJson(`custom-configs/${params.serviceName}.json`);
+      if (!existing) {
+        return { content: [{ type: "text", text: `No stored custom-page config for '${params.serviceName}'. Was it deployed with deploy_custom_page?` }], isError: true };
+      }
+
+      const objects = await gcsList(`dist/${params.serviceName}/`);
+      if (objects.length === 0) {
+        return { content: [{ type: "text", text: `No dist found for '${params.serviceName}'. Run upload_dist before update_custom_page.` }], isError: true };
+      }
+      const latest = objects.sort().pop();
+
+      const merged = { ...existing, latestDist: latest, deployedAt: new Date().toISOString() };
+      if (params.ogUrl !== undefined) merged.ogUrl = params.ogUrl;
+      await gcsUpload(`custom-configs/${params.serviceName}.json`, Buffer.from(JSON.stringify(merged, null, 2)), "application/json");
+
+      const { steps, serviceUrl } = await buildAndDeployCustom({ ...merged, distObjectName: latest });
+      return {
+        content: [{
+          type: "text",
+          text: [
+            `Custom page updated!`, ``, ...steps, ``,
+            `Same URL: ${serviceUrl}`,
+            `Refresh your browser to see the changes.`,
+          ].join("\n"),
+        }],
+      };
+    } catch (err) {
+      return { content: [{ type: "text", text: `Update failed: ${err.message}` }], isError: true };
+    }
+  }
+);
+
+// ── Tool: teardown_custom_page ──────────────────────────────────────────────
+server.tool(
+  "teardown_custom_page",
+  `Permanently delete a custom-page Cloud Run service and its GCS artefacts (dist tarballs, config, uploaded assets).
+Container images are NOT deleted in v1 — they accrue at ~$0.02/month each, acceptable short-term.
+Pass confirm: true to actually delete.`,
+  {
+    serviceName: z.string().describe("Cloud Run service name to destroy."),
+    confirm: z.literal(true).describe("Must be true. Prevents accidental teardowns."),
+  },
+  async ({ serviceName, confirm }) => {
+    if (confirm !== true) {
+      return { content: [{ type: "text", text: "Pass confirm: true to actually delete." }], isError: true };
+    }
+    const steps = [];
+    try {
+      const token = await getGcpAccessToken();
+      const servicePath = `projects/${GCP_PROJECT}/locations/${GCP_REGION}/services/${serviceName}`;
+      const delRes = await fetch(`https://run.googleapis.com/v2/${servicePath}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (delRes.ok) steps.push("Cloud Run service deleted.");
+      else if (delRes.status === 404) steps.push("Cloud Run service already gone.");
+      else steps.push(`Cloud Run delete warning: ${delRes.status} ${(await delRes.text()).slice(0, 200)}`);
+
+      const dists = await gcsList(`dist/${serviceName}/`);
+      for (const d of dists) await gcsDelete(d);
+      steps.push(`Deleted ${dists.length} dist tarball(s).`);
+
+      await gcsDelete(`custom-configs/${serviceName}.json`);
+      steps.push("Deleted custom-configs entry.");
+
+      const assets = await gcsList(`assets/${serviceName}/`);
+      for (const a of assets) await gcsDelete(a);
+      if (assets.length > 0) steps.push(`Deleted ${assets.length} asset(s).`);
+
+      return { content: [{ type: "text", text: [`Teardown complete for '${serviceName}'.`, ``, ...steps].join("\n") }] };
+    } catch (err) {
+      return { content: [{ type: "text", text: `Teardown failed: ${err.message}\nCompleted steps:\n${steps.map(s => `  - ${s}`).join("\n")}` }], isError: true };
+    }
+  }
+);
+
+// ── Tool: teardown_landing_page (standard-flow companion) ──────────────────
+server.tool(
+  "teardown_landing_page",
+  `Permanently delete a standard-flow Cloud Run service and its GCS artefacts (config, uploaded assets).
+For pages deployed with deploy_landing_page. Use teardown_custom_page for custom-page deploys.
+Container images are NOT deleted in v1. Pass confirm: true to actually delete.`,
+  {
+    serviceName: z.string().describe("Cloud Run service name to destroy."),
+    confirm: z.literal(true).describe("Must be true. Prevents accidental teardowns."),
+  },
+  async ({ serviceName, confirm }) => {
+    if (confirm !== true) {
+      return { content: [{ type: "text", text: "Pass confirm: true to actually delete." }], isError: true };
+    }
+    const steps = [];
+    try {
+      const token = await getGcpAccessToken();
+      const servicePath = `projects/${GCP_PROJECT}/locations/${GCP_REGION}/services/${serviceName}`;
+      const delRes = await fetch(`https://run.googleapis.com/v2/${servicePath}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (delRes.ok) steps.push("Cloud Run service deleted.");
+      else if (delRes.status === 404) steps.push("Cloud Run service already gone.");
+      else steps.push(`Cloud Run delete warning: ${delRes.status} ${(await delRes.text()).slice(0, 200)}`);
+
+      await gcsDelete(`configs/${serviceName}.json`);
+      steps.push("Deleted configs entry.");
+
+      const assets = await gcsList(`assets/${serviceName}/`);
+      for (const a of assets) await gcsDelete(a);
+      if (assets.length > 0) steps.push(`Deleted ${assets.length} asset(s).`);
+
+      return { content: [{ type: "text", text: [`Teardown complete for '${serviceName}'.`, ``, ...steps].join("\n") }] };
+    } catch (err) {
+      return { content: [{ type: "text", text: `Teardown failed: ${err.message}\nCompleted steps:\n${steps.map(s => `  - ${s}`).join("\n")}` }], isError: true };
+    }
   }
 );
 

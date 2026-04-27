@@ -51,6 +51,11 @@ const expectedSchema = {
   upload_asset: ["serviceName", "fileName", "base64Content"],
   setup_domain: ["serviceName", "subdomain", "brand"],
   check_ssl_status: ["subdomain", "brand"],
+  upload_dist: ["serviceName", "base64Tarball"],
+  deploy_custom_page: ["serviceName", "pageTitle", "ogUrl"],
+  update_custom_page: ["serviceName", "ogUrl"],
+  teardown_custom_page: ["serviceName", "confirm"],
+  teardown_landing_page: ["serviceName", "confirm"],
 };
 for (const [name, fields] of Object.entries(expectedSchema)) {
   const tool = tools.find((t) => t.name === name);

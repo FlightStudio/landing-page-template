@@ -12,6 +12,9 @@ RUN npm ci --omit=dev
 # Copy MCP server code
 COPY mcp-server/server.js ./
 
+# Bake in custom-page mode templates (Dockerfile + nginx.conf used by deploy_custom_page)
+COPY mcp-server/templates/ /app/templates/
+
 # Bake in the landing page template
 COPY package.json package-lock.json vite.config.js index.html Dockerfile nginx.conf /template/
 COPY src/ /template/src/
