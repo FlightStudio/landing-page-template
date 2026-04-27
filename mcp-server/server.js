@@ -44,11 +44,16 @@ function getGcpCredentials() {
   return _gcpCredentials;
 }
 
+const GCP_SCOPES = [
+  "https://www.googleapis.com/auth/cloud-platform",
+  "https://www.googleapis.com/auth/siteverification",
+];
+
 function getGcpAuth() {
   const creds = getGcpCredentials();
   return creds
-    ? new GoogleAuth({ credentials: creds, scopes: ["https://www.googleapis.com/auth/cloud-platform"] })
-    : new GoogleAuth({ scopes: ["https://www.googleapis.com/auth/cloud-platform"] }); // falls back to ADC
+    ? new GoogleAuth({ credentials: creds, scopes: GCP_SCOPES })
+    : new GoogleAuth({ scopes: GCP_SCOPES }); // falls back to ADC
 }
 
 async function getGcpAccessToken() {

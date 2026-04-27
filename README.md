@@ -6,49 +6,48 @@ Build, preview, and deploy landing pages and quizzes for Flight Studio brands. P
 
 ## Setup (one-time)
 
-### 1. Install Claude Desktop
+You need two things installed:
 
-Download and install from [claude.ai/download](https://claude.ai/download). Sign in with your Anthropic account. Open it once so it creates its config folder.
+1. **Node.js** — [nodejs.org](https://nodejs.org) (pick the LTS version). Verify with `node --version`.
+2. **Claude Code** — [claude.ai/code](https://claude.ai/code) (recommended: install as an extension in VS Code or Cursor).
 
-### 2. Install Node.js
-
-Download from [nodejs.org](https://nodejs.org) (LTS version). Verify it's installed:
-```bash
-node --version
-```
-
-### 3. Clone this repo
+Then:
 
 ```bash
+# Clone the repo (ask Matt for the URL if you don't have it)
 git clone https://github.com/FlightStudio/landing-page-template.git
+cd landing-page-template
+
+# One-time setup — installs deps + wires Claude Code at the production MCP
+./scripts/setup.sh
 ```
 
-### 4. Add the Campaign Studio connector
+Then open the folder in **VS Code / Cursor with Claude Code** (or in Claude Desktop's Code mode). The Campaign Studio MCP is auto-detected via the `.mcp.json` the setup script writes.
 
-This connects Claude to the deployment server so you can deploy, set up domains, and check SSL — all from within Claude.
+To verify everything's connected, ask Claude:
 
-1. Open Claude Desktop
-2. Go to **Settings** (gear icon) > **Connectors**
-3. Click the **+** button
-4. Fill in:
-   - **Name**: `Campaign Studio`
-   - **Remote MCP server URL**: `https://campaign-studio-30219985459.europe-west1.run.app/mcp`
-   - Leave OAuth fields blank
-5. Click **Add**
+> "Can you see the Campaign Studio MCP tools?"
 
-You should see 11 tools appear. Two main flows:
+You should see **11 tools** in two flows:
 
 - **Standard signup pages** (DOAC / WNTT): `list_brands`, `deploy_landing_page`, `update_landing_page`, `upload_asset`, `teardown_landing_page`.
 - **Custom-coded pages** (bespoke designs, ticket pages, anything outside the signup template): `upload_dist`, `deploy_custom_page`, `update_custom_page`, `teardown_custom_page`.
-- **Shared** (work for both): `setup_domain`, `check_ssl_status`.
+- **Shared** (both modes use these): `setup_domain`, `check_ssl_status`.
 
-### 5. Verify it works
+**Credentials:** the production MCP runs on Cloud Run with its own service account, so you don't need GCP creds locally. If Matt sends you a credentials file (only needed if you're developing the MCP itself, not just using it), drop it in `mcp-server/credentials/` — the folder is gitignored.
 
-1. Open Claude Desktop
-2. Open the `landing-page-template` folder as a project (File > Open Folder)
-3. Switch to the **Code** tab
-4. Type: "Can you see the Campaign Studio MCP tools?"
-5. Claude should confirm it can see tools like `deploy_landing_page` and `setup_domain`
+### Alternative: Claude Desktop (instead of Claude Code)
+
+If you'd rather use the Claude Desktop app:
+
+1. Install from [claude.ai/download](https://claude.ai/download), sign in.
+2. Settings (gear icon) → **Connectors** → **+** → fill in:
+   - **Name**: `Campaign Studio`
+   - **Remote MCP server URL**: `https://campaign-studio-30219985459.europe-west1.run.app/mcp`
+   - Leave OAuth fields blank
+3. Click **Add**, then open the `landing-page-template` folder as a project (File → Open Folder) and switch to the **Code** tab.
+
+Both paths give you the same 11 tools. Pick whichever editor you're already using.
 
 ---
 
@@ -149,12 +148,16 @@ landing-page-template/
 │   ├── new-campaign.md         #   /new-campaign conversation flow
 │   └── CAMPAIGN_LEARNINGS.md   #   accumulated build learnings
 ├── mcp-server/                 # Campaign Studio MCP server
-│   ├── server.js               #   MCP tools (deploy, domains, SSL)
+│   ├── server.js               #   MCP tools (11 — deploy, domain, SSL, custom-page)
 │   ├── Dockerfile              #   Cloud Run container
-│   ├── setup.sh                #   one-time setup
-│   ├── test-apis.js            #   integration tests
-│   └── credentials/            #   config (gitignored)
+│   ├── deploy.sh               #   immutable-tag deploy + smoke check
+│   ├── setup.sh                #   developer-only setup (most users skip)
+│   ├── templates/custom-page/  #   nginx files for deploy_custom_page builds
+│   ├── test-apis.js            #   integration tests for standard flow
+│   ├── test-custom-deploy.mjs  #   E2E test for custom-page mode
+│   └── credentials/            #   GCP service account (gitignored, dev only)
 ├── scripts/
+│   ├── setup.sh                # Top-level setup wrapper (run once after clone)
 │   └── scaffold.sh             # Creates new campaign projects
 ├── templates/                  # Saved campaign templates (shareable folders)
 ├── src/
@@ -238,9 +241,11 @@ Claude can also set up a custom subdomain (e.g. `quiz.needtotalkshow.com`) using
 
 | Problem | Fix |
 |---------|-----|
-| `npm run dev` fails | Run `npm install` first |
-| MCP tools not showing in Claude | Check `claude_desktop_config.json` is valid JSON, restart Claude Desktop |
+| `npm run dev` fails | Run `npm install` (or re-run `./scripts/setup.sh`) |
+| MCP tools not showing in Claude | (Claude Code) check `.mcp.json` exists at repo root and points at the prod MCP URL — re-run `./scripts/setup.sh` to recreate it. (Claude Desktop) check `claude_desktop_config.json` is valid JSON, restart the app. |
+| Claude only sees the old 6 tools | Your client cached the schema at session start. Restart Claude Code / Claude Desktop and reopen the project. |
 | Deploy says "no new revision" | Already fixed — image tags are timestamped |
+| `update_custom_page` doesn't seem to apply my edits | Custom-page mode deploys whatever was in your last `upload_dist` call. Run `npm run build` again, then re-upload, then update. |
 | Domain setup permission error | The GCP service account needs **Owner** permission in Google Search Console for the domain |
 | 503 error after domain setup | Normal — SSL is still provisioning. Wait 15-30 min. |
 | Cookie consent not appearing | Check `consent.js` is imported in `main.jsx` |

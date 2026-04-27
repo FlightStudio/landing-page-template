@@ -30,15 +30,20 @@ landing-page-template/
 │   ├── new-campaign.md             #   /new-campaign conversation flow
 │   └── CAMPAIGN_LEARNINGS.md       #   accumulated build learnings
 ├── mcp-server/                     # Campaign Studio MCP server
-│   ├── server.js                   #   MCP server (863 lines, 6 tools)
+│   ├── server.js                   #   MCP server (11 tools, v2.2.0)
 │   ├── Dockerfile                  #   Cloud Run container
 │   ├── package.json                #   MCP dependencies
-│   ├── setup.sh                    #   one-time setup script
-│   ├── test-apis.js                #   integration test suite
+│   ├── setup.sh                    #   developer setup (only needed if working on MCP itself)
+│   ├── deploy.sh                   #   immutable-tag deploy + smoke check
+│   ├── smoke-check.mjs             #   post-deploy version + schema verification
+│   ├── test-apis.js                #   integration test suite (existing tools)
+│   ├── test-custom-deploy.mjs      #   E2E test for custom-page mode
+│   ├── templates/custom-page/      #   nginx Dockerfile + nginx.conf baked into image
 │   ├── README.md                   #   MCP-specific docs
 │   └── credentials/
 │       └── config.example.json     #   config template (all 13 domains)
 ├── scripts/
+│   ├── setup.sh                    # top-level setup wrapper for new joiners
 │   └── scaffold.sh                 # creates new campaign projects
 ├── src/
 │   ├── brands/                     # brand presets (doac, wntt)
@@ -68,13 +73,24 @@ landing-page-template/
 │  Campaign Studio MCP Server (Cloud Run)                         │
 │  https://campaign-studio-30219985459.europe-west1.run.app/mcp   │
 │                                                                 │
-│  Tools:                                                         │
-│  • deploy_landing_page  → Cloud Build → Cloud Run               │
-│  • update_landing_page  → Patch existing deployment             │
-│  • upload_asset         → GCS storage                           │
-│  • setup_domain         → GoDaddy + Google Verification         │
-│  • check_ssl_status     → DNS + HTTPS check                    │
-│  • list_brands          → Available brand presets               │
+│  Tools (11 — two deploy modes share the same domain/SSL helpers):│
+│                                                                  │
+│  Standard signup mode (DOAC / WNTT):                            │
+│  • deploy_landing_page   → Cloud Build → Cloud Run              │
+│  • update_landing_page   → Patch existing deployment            │
+│  • upload_asset          → GCS storage                          │
+│  • teardown_landing_page → Delete service + GCS metadata        │
+│  • list_brands           → Available brand presets              │
+│                                                                  │
+│  Custom-page mode (bespoke designs):                            │
+│  • upload_dist           → Tarball of pre-built static frontend │
+│  • deploy_custom_page    → Wrap in nginx → Cloud Run (~30s)     │
+│  • update_custom_page    → Redeploy latest dist (same URL)      │
+│  • teardown_custom_page  → Delete service + dist + metadata     │
+│                                                                  │
+│  Shared:                                                         │
+│  • setup_domain          → GoDaddy + Google Verification        │
+│  • check_ssl_status      → DNS + HTTPS check                    │
 └──────┬──────────┬───────────────┬───────────────┬───────────────┘
        │          │               │               │
        ▼          ▼               ▼               ▼
@@ -94,16 +110,50 @@ landing-page-template/
 
 ## The MCP Server
 
-### Tools (6 total)
+Current version: **2.2.0** (April 2026). Two deploy modes against shared Cloud Run / GCS infrastructure.
+
+### Standard signup mode — for DOAC/WNTT signup pages
+
+Builds from a fixed template baked into the server's Docker image. Customisable through tool args (copy, brand preset, Klaviyo list, A/B variants, swappable assets).
 
 | Tool | What it does |
 |------|-------------|
 | `deploy_landing_page` | Generates campaign config → tarballs source → Cloud Build (Docker) → deploys to Cloud Run → sets public access → returns live URL. ~2 min end-to-end. |
 | `update_landing_page` | Fetches stored config from GCS, merges changes, rebuilds and redeploys. Same URL, new revision. |
-| `upload_asset` | Stores base64-encoded files (images, video) in GCS. Included in next deploy automatically. |
+| `upload_asset` | Stores base64-encoded files (images, video) in GCS at `assets/<service>/`. Included in next deploy automatically. |
+| `teardown_landing_page` | Deletes the Cloud Run service + GCS config + uploaded assets. Container images remain in GCR (~$0.02/mo each — see Deferred work). Pass `confirm: true` to actually delete. |
+| `list_brands` | Returns available brand presets with Klaviyo IDs, domains, logos. |
+
+### Custom-page mode — for bespoke designs (added v2.2.0)
+
+Wraps a pre-built `dist/` (Vite, Next.js, plain static HTML — anything with an `index.html`) in `nginx:alpine` and deploys to Cloud Run. The MCP server doesn't read local files, so the marketer's build artefact is uploaded explicitly. Used for campaigns that don't fit the signup-page mould — Eventbrite ticket pages, brand pages outside DOAC/WNTT, hand-coded layouts, exports from Lovable / v0 / Figma.
+
+| Tool | What it does |
+|------|-------------|
+| `upload_dist` | Stores a base64-encoded gzipped tarball of the local `dist/` at `dist/<service>/<ts>.tar.gz`. 25 MB cap. Recipe: `tar -czf - -C dist . \| base64`. |
+| `deploy_custom_page` | First-time deploy: untars latest dist, writes nginx Dockerfile + nginx.conf, Cloud Build, deploys to Cloud Run. ~30s (no `npm ci` step). |
+| `update_custom_page` | Redeploy latest dist for an existing service. Same URL, new revision. Re-run `upload_dist` first to pick up local edits. |
+| `teardown_custom_page` | Deletes the Cloud Run service + GCS dist tarballs + custom-config + uploaded assets. Pass `confirm: true`. |
+
+### Shared (work for both modes)
+
+| Tool | What it does |
+|------|-------------|
 | `setup_domain` | Creates GoDaddy CNAME → `ghs.googlehosted.com`, adds TXT verification record, verifies with Google, creates Cloud Run domain mapping. |
 | `check_ssl_status` | Checks DNS CNAME resolution + HTTPS reachability. SSL takes 15-30 min after domain setup. |
-| `list_brands` | Returns available brand presets with Klaviyo IDs, domains, logos. |
+
+### GCS layout
+
+```
+gs://<project>_campaign-studio/
+├── configs/<service>.json              standard signup mode metadata
+├── custom-configs/<service>.json       custom-page mode metadata     (NEW v2.2.0)
+├── assets/<service>/<file>             uploaded assets (either mode)
+├── dist/<service>/<ts>.tar.gz          uploaded dist tarballs        (NEW v2.2.0)
+└── builds/source/<svc>-<ts>.tar.gz     transient Cloud Build sources
+```
+
+Standard `configs/` and custom `custom-configs/` are strictly separate prefixes — `update_landing_page` cannot accidentally read a custom-page config and vice versa.
 
 ### Authentication
 
@@ -121,19 +171,31 @@ landing-page-template/
 
 ### Deploying the MCP Server Itself
 
-```bash
-# From the repo root
-docker build -f mcp-server/Dockerfile -t gcr.io/steven-warehouse-dev/campaign-studio:latest .
-docker push gcr.io/steven-warehouse-dev/campaign-studio:latest
+Use the deploy script — it builds with an immutable timestamped tag, deploys to Cloud Run, and runs the post-deploy smoke check. **Never use `:latest`** — Cloud Run pins revisions to digests and a mutable tag silently drifts (this caused a real prod/source mismatch — see TEST_REPORT.md gap #1).
 
-gcloud run deploy campaign-studio \
-  --image gcr.io/steven-warehouse-dev/campaign-studio:latest \
-  --platform managed \
-  --region europe-west1 \
-  --set-env-vars "GCP_PROJECT=steven-warehouse-dev,GCP_REGION=europe-west1,GCP_SA_KEY=<base64>,GODADDY_KEY=<key>,GODADDY_SECRET=<secret>,DOMAINS_JSON={...}" \
-  --memory 512Mi \
-  --allow-unauthenticated
+```bash
+./mcp-server/deploy.sh
 ```
+
+After the script returns, also verify out-of-band before declaring it shipped:
+
+```bash
+curl -s -X POST https://campaign-studio-30219985459.europe-west1.run.app/mcp \
+  -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"verify","version":"0"}}}'
+# Then call tools/list with the returned mcp-session-id and confirm new tools are present.
+```
+
+This is necessary because Claude Code's MCP client caches `tools/list` at session start — restart Claude Desktop / Claude Code sessions before testing new tools.
+
+**Rollback** (one command — pinned tags make this trivial):
+
+```bash
+gcloud container images list-tags gcr.io/steven-warehouse-dev/campaign-studio --limit 10
+gcloud run deploy campaign-studio --image=gcr.io/steven-warehouse-dev/campaign-studio:<previous-tag> --region=europe-west1
+```
+
+The new mode coexists with the old — even if a custom-page tool has a bug, standard `deploy_landing_page` campaigns continue working through both server versions.
 
 ### Running Tests
 
@@ -240,18 +302,26 @@ The current architecture maps one key → one domain. With 13 domains, some bran
 
 ## How to Set Up From Scratch (New Machine)
 
-1. Install Node.js (LTS) and Claude Desktop
-2. Clone this repo
-3. In Claude Desktop → Settings → Connectors → add the MCP URL above
-4. Open this folder in Claude Desktop (Code mode)
-5. Type `/new-campaign` to start building
+For most people (marketers, anyone using the MCP, not developing it):
 
-For MCP server development:
+1. Install Node.js LTS from https://nodejs.org and Claude Code (in VS Code / Cursor) from https://claude.ai/code
+2. Clone this repo
+3. From the repo root: `./scripts/setup.sh` — installs template deps, writes `.mcp.json` pointing at the production MCP
+4. Open the folder in VS Code / Cursor with Claude Code — the Campaign Studio MCP is auto-detected via `.mcp.json`
+5. Ask Claude: "Can you see the Campaign Studio MCP tools?" to verify, then type `/new-campaign` to start building
+
+For Claude Desktop specifically (alternative to Claude Code in VS Code):
+
+- Settings → Connectors → add `https://campaign-studio-30219985459.europe-west1.run.app/mcp` as an HTTP MCP server. Then open this folder in Claude Desktop (Code mode).
+
+For MCP server development (developing the MCP itself, not using it):
+
 ```bash
 cd mcp-server
-./setup.sh              # or manually: npm ci + copy config
-node test-apis.js all   # Verify everything connects
-node server.js          # Run locally
+./setup.sh                                # interactive: SA path, GoDaddy creds, Claude Desktop config
+node test-apis.js all                     # API smoke tests against real GCP/GoDaddy
+node server.js                            # Run locally — see mcp-server/README.md
+MCP_URL=http://localhost:8080/mcp node test-custom-deploy.mjs   # E2E test custom-page mode
 ```
 
 ---
@@ -259,17 +329,42 @@ node server.js          # Run locally
 ## Known Limitations
 
 - **No local preview in MCP flow** — the MCP deploys directly. Local preview requires the template repo + `npm run dev`.
-- **No rollback** — updating overwrites config in GCS. No version history.
+- **No rollback for individual campaigns** — `update_*` overwrites config in GCS. No campaign-level version history. (MCP server itself rolls back fine via image tags.)
 - **No draft/staging mode** — all deploys are immediately public.
-- **Build tarballs accumulate** — `{GCP_PROJECT}_cloudbuild` bucket isn't cleaned up.
+- **Build tarballs accumulate** — `{GCP_PROJECT}_cloudbuild` bucket isn't cleaned up. Apply a 30-day lifecycle rule.
+- **Custom-page mode dist tarballs** — same concern. Lifecycle rule on `gs://<project>_campaign-studio/dist/` recommended.
+- **Container images linger after teardown** — both `teardown_*` tools delete the Cloud Run service + GCS state but leave container images in GCR (~$0.02/mo each). v2 work, see Deferred.
 - **SSL provisioning takes 15-30 min** — users need to call `check_ssl_status` manually.
+- **Custom-page `update_custom_page` deploys the LATEST upload, not the latest local code** — the MCP doesn't read local files. If a marketer edits code without re-running `npm run build` and re-uploading, nothing changes on the live site. Surfaced in `/new-campaign` copy.
 
 ---
 
 ## Deferred work
 
-- **`teardown_landing_page` MCP tool.** Currently every deployed campaign leaks Cloud Run service + GCS config + container image unless cleaned manually with `gcloud`/`gsutil` (4 commands, see TEST_PLANv2.md §5). Marketers can't reasonably do this. A single MCP tool that deletes all four resources for a given `serviceName` would close the loop. Not blocking marketing rollout but should land before throwaway-test volume scales up.
-- **`og:url` meta tag.** `OG_URL` is exported by `campaign.config.js` but the Vite template's `index.html` doesn't reference it, so the `ogUrl` arg added to `deploy_landing_page`/`update_landing_page` in v2.1.0 has no current effect. Most crawlers fall back to the canonical request URL, so non-blocking, but the meta tag should be added so the field actually does something.
+- ✅ **`teardown_landing_page` and `teardown_custom_page` MCP tools.** Both shipped in v2.2.0 (April 2026). Closes the orphan-resource gap from TEST_REPORT.md #6.
+- **Container image cleanup in teardown tools.** v1 leaves images in GCR. Needs `roles/storage.admin` on the GCR bucket to delete manifests. v2 should add this.
+- **`og:url` meta tag.** `OG_URL` is exported by `campaign.config.js` but the Vite template's `index.html` doesn't reference it, so the `ogUrl` arg added to `deploy_landing_page`/`update_landing_page` in v2.1.0 has no current effect. Most crawlers fall back to the canonical request URL, so non-blocking, but the meta tag should be added so the field actually does something. Same applies to the optional `ogUrl` on `deploy_custom_page` / `update_custom_page` — it's stored in custom-configs/ for reference but doesn't get baked into the dist (the marketer controls their own dist's HTML).
+- **GCS lifecycle rules.** Apply 30-day delete to `dist/`, `builds/source/`, and possibly `assets/` for serviceNames that no longer have a config. Not done yet.
+
+---
+
+## What changed in v2.2.0 (April 2026)
+
+Five new MCP tools enabling deploy of pre-built static frontends alongside the existing scaffold-based signup flow. Existing tool schemas unchanged — net-additive release.
+
+**New tools:** `upload_dist`, `deploy_custom_page`, `update_custom_page`, `teardown_custom_page`, `teardown_landing_page` (companion for the standard flow).
+
+**Why:** Some campaigns don't fit the signup-page mould — Eventbrite ticket pages (Begin Again Coffee Rave was the trigger), brands without a preset, fully bespoke designs from external tools. Previously the only deploy path was the baked-in template, which doesn't read local files. The new mode accepts a pre-built `dist/` and deploys it as a static nginx site to the same Cloud Run / domain stack.
+
+**Architecture decision:** ship the built `dist/`, not the source tree. Smaller payloads (<5MB typical), 30s build (no `npm ci`), no arbitrary code execution server-side. Detail in `MCP_CUSTOM_PAGE_PLAN.md` (root of repo, gitignored — local-only planning doc).
+
+**Rolled out:**
+- Server v2.2.0 deployed to Cloud Run as immutable tag `:20260427-162417` (revision `campaign-studio-00019-dkm`)
+- Smoke check + `tools/list` out-of-band verification confirmed new tools live
+- Integration test (`mcp-server/test-custom-deploy.mjs`) passed end-to-end against local MCP — full upload → deploy → verify → update → verify → teardown → verify-clean cycle
+- README + `/new-campaign` slash command updated to branch on standard-vs-custom
+
+**Gitignore now excludes** root-level `*.md` files (planning/test scratch docs) except `HANDOVER.md` and `README.md`, plus `.mcp.json` (may contain auth tokens). See `.gitignore`.
 
 ---
 
