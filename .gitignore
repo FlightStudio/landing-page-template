@@ -10,3 +10,11 @@ mcp-server/credentials/config.json
 mcp-server/credentials/*.json
 !mcp-server/credentials/config.example.json
 !mcp-server/credentials/.gitkeep
+
+# Root-level planning / test docs — only HANDOVER and README are tracked
+/*.md
+!/HANDOVER.md
+!/README.md
+
+# Local MCP client config — may contain auth tokens
+.mcp.json

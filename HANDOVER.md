@@ -266,6 +266,13 @@ node server.js          # Run locally
 
 ---
 
+## Deferred work
+
+- **`teardown_landing_page` MCP tool.** Currently every deployed campaign leaks Cloud Run service + GCS config + container image unless cleaned manually with `gcloud`/`gsutil` (4 commands, see TEST_PLANv2.md §5). Marketers can't reasonably do this. A single MCP tool that deletes all four resources for a given `serviceName` would close the loop. Not blocking marketing rollout but should land before throwaway-test volume scales up.
+- **`og:url` meta tag.** `OG_URL` is exported by `campaign.config.js` but the Vite template's `index.html` doesn't reference it, so the `ogUrl` arg added to `deploy_landing_page`/`update_landing_page` in v2.1.0 has no current effect. Most crawlers fall back to the canonical request URL, so non-blocking, but the meta tag should be added so the field actually does something.
+
+---
+
 ## Repo Sharing Checklist
 
 Before sharing, ensure:

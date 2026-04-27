@@ -57,22 +57,44 @@ You should see 6 tools appear: `deploy_landing_page`, `update_landing_page`, `up
 3. Type `/new-campaign`
 4. Follow the prompts — Claude will ask about:
    - **Campaign type** — signup page or quiz
-   - **Brand** — DOAC, WNTT, or a new brand
+   - **Brand** — pick an existing one or give Claude the details for a new one
    - **Content** — headline, body copy, button text
    - **Klaviyo list** — where signups go
-   - **A/B variants** — what you're testing
+   - **A/B variants** — how many versions you want to test, and what differs between them
 
-### What happens next
+### What it feels like
 
-Claude will:
+A real flow looks like this:
 
-1. **Scaffold** a new project directory with all the right files
-2. **Fill in** your campaign config from the brief
-3. **Start a local preview** (`npm run dev`) — opens in your browser with hot reload
-4. **Iterate** — ask for any changes ("make the headline bigger", "change the background colour", "swap the button text") and see them instantly
-5. **Run a pre-deploy checklist** — analytics, Klaviyo, mobile, OG tags, etc.
-6. **Deploy** via Campaign Studio MCP to a live URL on Cloud Run
-7. **Set up a custom domain** if needed (e.g. `live.thediary.com`)
+> **You:** I want to build a We Need To Talk Love Island quiz — picks your Islander match based on 5 questions.
+>
+> **Claude:** Happy to help. A few things to get started — what's the Klaviyo list ID for this one? How many result types should we have (e.g. 4 Islanders)? And anything different from the usual WNTT look, or stick with caramel-on-teal?
+>
+> **You:** List is `ABC123`. 4 Islanders. Standard look is fine. Here's the brief [pastes doc]. Oh, and I want two variants — one with "Find your match" and one with "Which Islander are you?".
+>
+> **Claude:** Got it. Scaffolding `wntt-love-island-quiz` with 2 variants: `match-headline` and `islander-headline`. I'll open the preview in your browser in a moment.
+>
+> *[Claude scaffolds, starts the dev server, opens localhost. You see the quiz on screen.]*
+>
+> **You:** The gate headline feels weak. Can you try something punchier? And swap the background to this image [drops image in chat].
+>
+> **Claude:** *[edits copy, uploads image, hot reload shows the new version]* Done — take a look.
+>
+> **You:** Nice. Let's ship it to `loveisland.needtotalkshow.com`.
+>
+> **Claude:** Deploying... *[~2 min]* Live at the Cloud Run URL. Setting up the subdomain now — SSL will take 15-30 min to provision, I'll let you know when it's ready.
+
+Under the hood Claude will:
+
+1. **Offer you a template** to start from if there's one saved that matches the brand / campaign type — or scaffold from scratch if you'd rather
+2. **Scaffold** a new project directory with all the right files
+3. **Fill in** your campaign config from the brief
+4. **Start a local preview** (`npm run dev`) — opens in your browser with hot reload, without you touching a terminal
+5. **Iterate** — ask for any changes ("make the headline bigger", "change the background colour", "swap the button text") and see them instantly
+6. **Run a pre-deploy checklist** — analytics, Klaviyo, mobile, OG tags, etc.
+7. **Deploy** via Campaign Studio MCP to a live URL on Cloud Run
+8. **Set up a custom domain** if needed — e.g. `quiz.needtotalkshow.com` or `signup.thediary.com`
+9. **Ask if you want to save this as a template** — for your team to reuse next time
 
 ### Campaign types
 
@@ -82,16 +104,34 @@ Claude will:
 
 ---
 
+## Reusable templates
+
+Built something you'd like to reuse? At the end of `/new-campaign` (after deploy), Claude asks:
+
+> "Want to save this as a template?"
+
+If you say yes, Claude saves your campaign's look & layout into [templates/](templates/) — **with every Klaviyo list ID, campaign slug, headline, and other campaign-specific value scrubbed out**. Next time anyone runs `/new-campaign` in this repo, Claude will offer your template as a starting point.
+
+### Sharing a template
+
+Templates are just folders inside `templates/`. Send the folder to a teammate however you like:
+- **Via git** — commit `templates/<name>/` and push. Your team pulls and it appears in their template list.
+- **One-off** — zip the folder, send it on Slack/email. They drop it in their own `templates/` directory.
+
+Because templates never contain campaign-specific identifiers (no list IDs, no domains), sharing them is safe. Full details in [templates/README.md](templates/README.md).
+
+---
+
 ## Available brands
 
-Brands are pre-configured in `src/brands/`. Each brand defines its Klaviyo account, legal URLs, fonts, colours, and logo.
+Each brand has a preset in `src/brands/` that defines its Klaviyo account, legal URLs, fonts, colours, and logo.
 
 | Brand | File | Fonts | Accent |
 |-------|------|-------|--------|
 | The Diary of a CEO | `src/brands/doac.js` | Inter | Red on black |
 | We Need To Talk | `src/brands/wntt.js` | Figtree | Caramel on teal |
 
-To add a new brand, create a new file in `src/brands/` following the same structure. Claude can help with this.
+If the brand you need isn't listed, don't worry about creating the file — just tell Claude the brand you're building for during `/new-campaign`. It'll ask for the details it needs (logo, colours, fonts, Klaviyo company ID, legal URLs, root domain) and set up the preset for you.
 
 ---
 
@@ -110,6 +150,7 @@ landing-page-template/
 │   └── credentials/            #   config (gitignored)
 ├── scripts/
 │   └── scaffold.sh             # Creates new campaign projects
+├── templates/                  # Saved campaign templates (shareable folders)
 ├── src/
 │   ├── brands/                 # Brand presets (DOAC, WNTT, etc.)
 │   ├── quiz-templates/         # Quiz components (used by --type quiz)
