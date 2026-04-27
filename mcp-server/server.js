@@ -460,7 +460,7 @@ META PIXEL — this is already in the brand preset. Don't ask about it unless it
 
 function createMcpServer() {
   const s = new McpServer(
-    { name: "campaign-studio", version: "2.0.0" },
+    { name: "campaign-studio", version: "2.1.0" },
     { instructions: SERVER_INSTRUCTIONS }
   );
   registerTools(s);
@@ -492,6 +492,9 @@ The campaign config is stored so you can update it later with update_landing_pag
     pageTitle: z.string().describe("Browser tab title"),
     klaviyoListId: z.string().describe("Existing Klaviyo List ID, e.g. 'VgEHAy'"),
     consentSource: z.string().describe("Format: YYYYMM_BrandCampaign, e.g. '202604_DOACLondonMeetGreet'"),
+    ogDescription: z.string().optional().describe("Social-share preview description (og:description). Defaults to empty if omitted."),
+    ogImagePath: z.string().optional().describe("Path to OG image, e.g. '/assets/og-image.jpg' (the default). Upload a custom image with upload_asset first."),
+    ogUrl: z.string().optional().describe("Canonical URL for og:url. Usually filled in via update_landing_page once the final URL is known."),
     variants: z.array(z.string()).describe("Descriptive A/B variant names, e.g. ['headline-direct', 'headline-question']. Never use 'a'/'b'."),
     content: z.object({
       label: z.string().describe("Label text, e.g. 'LIMITED TIME'"),
@@ -552,6 +555,9 @@ Only provide the fields you want to change — everything else stays the same.`,
     variants: z.array(z.string()).optional().describe("Updated variant names"),
     pageTitle: z.string().optional().describe("Updated browser tab title"),
     klaviyoListId: z.string().optional().describe("Updated Klaviyo list ID"),
+    ogDescription: z.string().optional().describe("Updated og:description for social-share previews"),
+    ogImagePath: z.string().optional().describe("Updated path to OG image, e.g. '/assets/og-image.jpg'"),
+    ogUrl: z.string().optional().describe("Updated canonical URL for og:url"),
   },
   async (params) => {
     try {
@@ -566,6 +572,9 @@ Only provide the fields you want to change — everything else stays the same.`,
       if (params.variants) merged.variants = params.variants;
       if (params.pageTitle) merged.pageTitle = params.pageTitle;
       if (params.klaviyoListId) merged.klaviyoListId = params.klaviyoListId;
+      if (params.ogDescription !== undefined) merged.ogDescription = params.ogDescription;
+      if (params.ogImagePath !== undefined) merged.ogImagePath = params.ogImagePath;
+      if (params.ogUrl !== undefined) merged.ogUrl = params.ogUrl;
 
       // Store updated config
       await gcsUpload(`configs/${params.serviceName}.json`, Buffer.from(JSON.stringify(merged, null, 2)), "application/json");
