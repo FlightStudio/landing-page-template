@@ -11,6 +11,21 @@ mcp-server/credentials/*.json
 !mcp-server/credentials/config.example.json
 !mcp-server/credentials/.gitkeep
 
+# Service-account / API-key files — defense in depth across the whole repo.
+# A real leaked key (steven-warehouse-dev-7237ace59376.json) made it into
+# remote git history once via force-add. These patterns belt-and-brace the
+# folder rule above so even an accidental drop into any folder is ignored.
+**/credentials/*.json
+!**/credentials/config.example.json
+!**/credentials/.gitkeep
+*service-account*.json
+*service_account*.json
+*-sa-key*.json
+sa-key*.json
+steven-warehouse-dev-*.json
+*.private-key.json
+*.private_key.json
+
 # Root-level planning / test docs — only HANDOVER and README are tracked
 /*.md
 !/HANDOVER.md
