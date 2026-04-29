@@ -52,17 +52,25 @@ Restart Claude Desktop. Keep the remote connector enabled too if you want to fli
 
 The server exposes two deploy modes against the same Cloud Run / GCS infrastructure.
 
-### Standard signup mode — for DOAC / WNTT signup pages
+### Standard signup mode — for DOAC / WNTT / HSR signup pages
 
-Builds from a fixed template baked into the server's image. Customisable through the tool args (copy, brand preset, Klaviyo list, A/B variants, swappable assets).
+Builds from a fixed template baked into the server's image. Customisable through the tool args (copy, brand preset, Klaviyo list **or** Beehiiv UTM trio, A/B variants, swappable assets, dynamic form fields).
+
+Brand × subscriber-provider pairing:
+
+- **Klaviyo brands** (DOAC, WNTT, all others): pass `klaviyoListId` + `consentSource`. UTM fields are rejected.
+- **Beehiiv brands** (HSR only): pass `utmSource` + `utmMedium` + `utmCampaign`. `klaviyoListId` is rejected.
+- The brand preset's `provider` field is the source of truth. `deploy_landing_page` rejects mismatches with a clear error message.
 
 | Tool | What it does |
 |------|-------------|
-| `list_brands` | Shows brand presets with Klaviyo IDs, logos, domains |
-| `deploy_landing_page` | First-time deploy of a standard signup page to Cloud Run (~2 min) |
-| `update_landing_page` | Update an existing standard deploy (same URL, new revision) |
+| `list_brands` | Shows brand presets with provider + Klaviyo/Beehiiv IDs + domains |
+| `deploy_landing_page` | First-time deploy of a standard signup page to Cloud Run (~2 min). Accepts `formFields` for custom form schemas. |
+| `update_landing_page` | Update an existing standard deploy (same URL, new revision). Can also update `utmSource`/`utmMedium`/`utmCampaign`/`formFields`. |
 | `upload_asset` | Upload images/media for use in next standard deploy |
 | `teardown_landing_page` | Delete a standard service + GCS config + assets (`confirm: true` required) |
+
+For HSR campaigns, the marketer-supplied form fields become Beehiiv `custom_fields` on every submission. The proxy automatically populates `Acquisition Source` with `${campaign_name} — ${variant}` so marketers can filter Beehiiv by exact campaign + variant.
 
 ### Custom-page mode — for bespoke designs
 
@@ -82,12 +90,33 @@ Wraps a pre-built `dist/` (Vite, Next.js, or any static frontend) in `nginx:alpi
 | `setup_domain` | GoDaddy CNAME + Google verification + Cloud Run domain mapping |
 | `check_ssl_status` | Checks if SSL is provisioned and the site is reachable |
 
+### Beehiiv subscribe proxy — HTTP, not MCP
+
+Browsers (campaign pages) call this directly, not through Claude. It lives on the same Cloud Run service alongside the MCP routes.
+
+```
+POST /api/subscribe-beehiiv
+Origin: <one of: localhost / *.run.app / brand domain>
+Content-Type: application/json
+Body: {
+  email: "...",
+  utm_source / utm_medium / utm_campaign / referring_site,
+  tags: [string],            // becomes both: lowercased Beehiiv tags + "Acquisition Source" custom field
+  custom_fields: [ { name, value } ]   // marketer-defined extras (must match existing Beehiiv fields)
+}
+```
+
+- Holds `BEEHIIV_API_KEY` server-side. The static campaign bundle never sees it.
+- CORS allow-list, 10kb body limit, 10 req/min/IP rate limit, email-format validation.
+- Two-step Beehiiv flow: (1) create subscription with `custom_fields`, (2) best-effort attach tags via `POST /publications/<pub>/subscriptions/<id>/tags`. If step 2 fails, the `Acquisition Source` custom field still carries the campaign+variant.
+- **Important Beehiiv quirk:** custom field values for fields that don't exist on the publication are silently dropped. The MCP keeps a `KNOWN_BEEHIIV_FIELDS` list (server.js, ~25 entries) and warns in `deploy_landing_page` output when a campaign uses a field name outside that list. Update the list when HSR's admin adds new custom fields in the Beehiiv UI.
+
 ### GCS layout
 
 The server stores artefacts and metadata under these prefixes (bucket: `<project>_campaign-studio`):
 
 ```
-configs/<service>.json              standard signup mode metadata
+configs/<service>.json              standard signup mode metadata (both Klaviyo and Beehiiv brands)
 custom-configs/<service>.json       custom-page mode metadata
 assets/<service>/<file>             marketer-uploaded images for either mode
 dist/<service>/<ts>.tar.gz          uploaded dist tarballs (custom mode)
@@ -95,6 +124,18 @@ builds/source/<svc>-<ts>.tar.gz     transient Cloud Build sources (auto-cleanup 
 ```
 
 Standard and custom configs live under different prefixes by design — `update_landing_page` cannot accidentally read a custom-page config and vice versa.
+
+### Server env vars (Cloud Run)
+
+| Var | Purpose |
+|---|---|
+| `GCP_PROJECT` / `GCP_REGION` | Where to deploy campaigns |
+| `GCP_SA_KEY` (base64) | Service account credentials for Cloud Build / Cloud Run / GCS / Site Verification |
+| `GODADDY_KEY` / `GODADDY_SECRET` | DNS record creation for `setup_domain` |
+| `DOMAINS_JSON` | Brand → root domain map (e.g. `{"doac":"thediary.com","hsr":"hsrowntheroom.com"}`) |
+| `MCP_AUTH_TOKEN` (optional) | Bearer auth for the `/mcp` route |
+| `BEEHIIV_API_KEY` | **HSR only** — Bearer key for the `/api/subscribe-beehiiv` proxy. Set via `gcloud run services update campaign-studio --update-env-vars=BEEHIIV_API_KEY=<key>`. |
+| `BEEHIIV_PUBLICATION_ID` (optional) | Override the default HSR publication ID (rare — only useful for testing against a separate publication). |
 
 ## Supported Domains
 
@@ -178,6 +219,16 @@ MCP_AUTH_TOKEN=<token> node mcp-server/test-custom-deploy.mjs
 ```
 
 The service it creates is named `custom-test-<timestamp>` and is torn down at the end. If the test fails partway, the script prints the manual cleanup command.
+
+### Beehiiv proxy end-to-end
+
+Run [`test-beehiiv.mjs`](test-beehiiv.mjs) — directly hits Beehiiv's API to verify create + tags + custom_fields shape. Reads `BEEHIIV_API_KEY` from env (never hardcoded).
+
+```bash
+BEEHIIV_API_KEY=<key> node mcp-server/test-beehiiv.mjs
+```
+
+**Creates real burner subscribers** (3 per run, named `zbosneaks+hsrtest-{a,b,c}-<ts>@gmail.com`). Per the project rule, **the test does NOT call DELETE on Beehiiv subscribers** — manual cleanup via the Beehiiv dashboard if you want.
 
 ## Prerequisites
 

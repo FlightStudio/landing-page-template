@@ -18,30 +18,83 @@ Never block if templates are missing — just proceed.
 
 Collect the information you need. Group related questions — don't ask one at a time.
 
-### Campaign Type (ask first — determines the build)
+### Subscriber provider (ALWAYS the first question on signup campaigns)
+
+Before brand selection, ASK: **"Are subscribers going to Klaviyo or Beehiiv (HSR)?"**
+
+- **Klaviyo** — DOAC, WNTT, and almost every brand
+- **Beehiiv** — HSR (Hot Smart Rich) only
+
+Routing rules — flag and confirm if the answer doesn't match the brand:
+
+| Provider answer | Brand they pick | Action |
+|---|---|---|
+| Klaviyo | DOAC, WNTT, etc. | Ask for the Klaviyo list ID. |
+| Beehiiv | HSR | Ask for `utm_source`, `utm_medium`, `utm_campaign`. **Don't** ask for a Klaviyo list ID. |
+| Klaviyo | HSR | **Mismatch** — say: "HSR uses Beehiiv, not Klaviyo. Want me to switch the provider to Beehiiv?" |
+| Beehiiv | non-HSR | **Mismatch** — say: "Only HSR is wired for Beehiiv today. The other brands all use Klaviyo. Want HSR or Klaviyo?" |
+| "Not sure" | any | Look up `brand.provider` in `src/brands/<key>.js` and tell them — don't make them guess. |
+
+`deploy_landing_page` validates the brand × args combo and rejects mismatches with a clear error.
+
+### Campaign Type (ask second — determines the build)
 - "Is this a signup page, a quiz, a competition entry, or something else?"
 - "Is there a spec document or brief I should work from?"
 
 **Two deploy paths exist** — pick the right one based on the answer:
 
-- **Standard signup / quiz** (DOAC or WNTT, signup form, A/B variants, Klaviyo): use the scaffold + `deploy_landing_page`. This is the default — most campaigns.
-- **Custom-coded design** (bespoke layout, Eventbrite checkout, marketer dropped a complete project from Lovable/v0/Figma, brand outside DOAC/WNTT, no Klaviyo signup): skip the scaffold entirely. Make sure the project has a working `npm run build`, then deploy with `upload_dist` + `deploy_custom_page` (see Phase 5 → Custom design path). Phase 0 templates and Phase 2 scaffold do not apply on this branch.
+- **Standard signup / quiz** (any brand, signup form, A/B variants, Klaviyo or Beehiiv): use the scaffold + `deploy_landing_page`. This is the default — most campaigns. Both Klaviyo and Beehiiv brands run on this path.
+- **Custom-coded design** (bespoke layout, Eventbrite checkout, marketer dropped a complete project from Lovable/v0/Figma, brand outside DOAC/WNTT/HSR, no signup form at all): skip the scaffold entirely. Make sure the project has a working `npm run build`, then deploy with `upload_dist` + `deploy_custom_page` (see Phase 5 → Custom design path). Phase 0 templates and Phase 2 scaffold do not apply on this branch.
 
-If unsure, ask: "Is this a normal DOAC/WNTT signup, or a custom-coded design you've already built or are building outside the signup template?"
+If unsure, ask: "Is this a normal signup/quiz, or a custom-coded design you've already built or are building outside the signup template?"
 
 ### Brand & Basics
-- Which brand? Check `src/brands/` for available presets (currently **doac** and **wntt**).
+- Which brand? Check `src/brands/` for available presets (currently **doac**, **wntt**, **hsr** as a minimal stub).
 - **If the brand has no preset yet**, don't block — gather the brand details conversationally and create a new `src/brands/<name>.js` alongside the existing ones. You'll need:
   - Brand name + short name
   - Logo (ask them to drop the image in chat, save under `public/assets/`)
   - Primary / accent / background colors (hex)
   - Fonts (Google Fonts family name is fine)
-  - Klaviyo company ID (the 6-char public ID from their Klaviyo account settings)
+  - Subscriber provider (`klaviyo` for almost every new brand)
+  - Klaviyo company ID (the 6-char public ID from their Klaviyo account settings) — only if Klaviyo
   - Privacy policy URL, cookie policy URL, terms URL
   - Meta Pixel ID (optional — leave empty string if they don't have one yet)
   - Root domain (e.g. `needtotalkshow.com`) — used by `setup_domain`
 - Campaign name (human readable, e.g. "WNTT Love Island Quiz")
-- What Klaviyo list should signups go to? If they don't know: "You can find it in Klaviyo > Audience > Lists & Segments — click the list and grab the short code from the URL."
+- **For Klaviyo brands** — What Klaviyo list should signups go to? If they don't know: "You can find it in Klaviyo > Audience > Lists & Segments — click the list and grab the short code from the URL."
+- **For HSR (Beehiiv)** — Three short identifiers for `utm_source`, `utm_medium`, `utm_campaign`. These flow through to Beehiiv subscribers as UTM tracking. Examples: `utm_source: "website"`, `utm_medium: "signup_landing"`, `utm_campaign: "spring_push"`. The campaign+variant tag is auto-generated and stored on each subscriber's `Acquisition Source` custom field — no marketer input needed.
+
+### Form Fields (signup campaigns)
+
+The signup form is config-driven via the `formFields` arg on `deploy_landing_page`. Default schema if you don't pass anything: **firstName + email + phone**.
+
+- ASK the marketer what fields they want. Common shapes:
+  - "just email" → `[{ key: "email", label: "Email address", type: "email", required: true }]`
+  - "name and email" → firstName + email
+  - "name, email, phone" → the historical default
+  - Anything else → custom fields, see HSR caveat below
+- Email is always required. Always include it in the schema.
+- For `tel` fields, the form auto-renders the dial-code selector and normalises to E.164 on submit.
+
+**For HSR (Beehiiv) specifically — Beehiiv silently drops values for custom fields that don't already exist on the publication.** When a marketer asks for a non-default form field:
+
+- These fields ALREADY EXIST on HSR's Beehiiv publication (snapshot 2026-04-29). SUGGEST these by name when a marketer asks for a related field — don't ask them to create one if a suitable existing field is available:
+  - **Identity:** First Name, Last Name, Phone Number (Number type — see quirk below), Birthday (Date), Age
+  - **Address:** Address Line 1, Address Line 2, State/Province, Zip Code, Postal/Zip Code
+  - **Career:** Employer, Job Title, Stage of Career (List), LinkedIn Profile
+  - **Source:** Acquisition Source (auto-set by us), Subscribed On
+  - **Preferences (List):** Why You Follow Me, What do you want next?, Why Did You Upgrade?, Annual Subscription, Monthly Subscription Reason
+  - **Other (Text):** What you want to see in content, Where should I go from here?, Interested in Venture Debt, Why Did You Upgrade Secondary
+- When the marketer's request fits one of these, MAP IT — don't ask them to create a new one:
+  - "their job role" → `Job Title`
+  - "where they live" → `State/Province` or `Zip Code` or `Postal/Zip Code`
+  - "their LinkedIn" → `LinkedIn Profile`
+  - "what stage of career" → `Stage of Career` (List — values must match Beehiiv's pre-defined options)
+  - "where they heard about us" → don't ask, `Acquisition Source` is auto-populated per campaign
+- If no existing field fits, tell the marketer to create one in Beehiiv first:
+  > "I'll add '\<Field\>' to the form. Please ask whoever runs HSR's Beehiiv account to add a custom field named exactly '\<Field\>' (Settings → Custom Fields) before you launch — otherwise Beehiiv will drop the value."
+- **Phone Number quirk:** Beehiiv's Phone Number field is type `Number`. Submitted E.164 strings (`+447700900123`) are coerced to integer (`447700900123` — the `+` is stripped). Acceptable for v1; mention if a marketer cares about preserving the country-code prefix.
+- **List-type fields:** values must match pre-defined options. Coordinate with the Beehiiv admin if using one.
 
 ### Page Content
 For signup: headline, body copy, button text, post-submission message.

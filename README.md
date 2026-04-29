@@ -107,6 +107,15 @@ Under the hood Claude will:
 
 **Custom design** — anything bespoke that doesn't fit the signup-page mould (Eventbrite checkout, brand outside DOAC/WNTT, hand-coded layout, page exported from Lovable / v0 / Figma). Build the project locally with `npm run build`, then Claude uses `upload_dist` + `deploy_custom_page` to ship it to the same Cloud Run / domain stack as standard pages. No Klaviyo wiring, no scaffold. See [MCP_CUSTOM_PAGE_PLAN.md](MCP_CUSTOM_PAGE_PLAN.md) for the architecture.
 
+### Subscriber providers (signup pages and quizzes)
+
+Two paths, picked automatically based on the brand:
+
+- **Klaviyo** (default — DOAC, WNTT, all brands except HSR). Pass a Klaviyo list ID at setup time. List/list properties / SMS / cookie-consent identify all work as before.
+- **Beehiiv** (HSR only). Pass `utm_source`, `utm_medium`, `utm_campaign` at setup time. Subscribers are created via a server-side proxy on the MCP — the API key never enters the campaign bundle. Each subscriber is auto-tagged with `${campaign_name} — ${variant}` (stored as a Beehiiv tag and on the `Acquisition Source` custom field). Form fields beyond email are config-driven via the `formFields` arg.
+
+When you start `/new-campaign`, Claude asks "Klaviyo or Beehiiv?" first. If the answer doesn't match the brand you pick, Claude flags the mismatch instead of guessing.
+
 ---
 
 ## Reusable templates

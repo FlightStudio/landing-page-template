@@ -14,6 +14,9 @@ export default {
   shortName: "WNTT",
   logo: "/assets/wntt-logo-pink.png", // Variants available: wntt-logo-teal/pink/black/white.png
 
+  // ── Subscriber provider ──────────────────────────────────────────
+  provider: "klaviyo",
+
   // ── Klaviyo ──────────────────────────────────────────────────────
   klaviyoCompanyId: "SyEtVT",
 

@@ -219,3 +219,72 @@ Before sending to customers, verify:
 - [ ] Share button works (if applicable) — generic text, not personal results
 - [ ] `npx vite build` succeeds without errors
 - [ ] Deploy via Campaign Studio MCP `deploy_landing_page` (handles build + deploy automatically)
+
+---
+
+## 12. Subscriber providers — Klaviyo vs Beehiiv (added v2.3.0, April 2026)
+
+Most brands use Klaviyo. **HSR (Hot Smart Rich) uses Beehiiv exclusively.**
+
+### Routing
+- ALWAYS ASK the marketer which provider before deploying — don't infer from the brand silently.
+- If they pick "Klaviyo + HSR" or "Beehiiv + non-HSR", flag the mismatch and ask to correct.
+- The brand preset's `provider` field is the source of truth in code. `deploy_landing_page` validates the brand × args combo and rejects mismatches.
+
+### Beehiiv specifics
+- API key lives ONLY in the MCP server's `BEEHIIV_API_KEY` env var on Cloud Run. Never in the client bundle.
+- Signups POST to `https://campaign-studio-30219985459.europe-west1.run.app/api/subscribe-beehiiv` — that proxy holds the key and forwards to Beehiiv.
+- Per-campaign data: `utm_source`, `utm_medium`, `utm_campaign` — ASK the marketer for all three at setup time.
+- `referring_site` is auto-derived at form-submit time from `window.location.origin + pathname`.
+- Each subscriber gets a tag of the form `${CAMPAIGN_NAME} — ${variant}` attached via the dedicated tags endpoint AND as the value of the `Acquisition Source` custom field (belt-and-braces — both routes confirmed working in Phase 0 testing).
+- Beehiiv lowercases tags on storage. `Acquisition Source` preserves case + em-dashes.
+- Beehiiv's API rate-limits return 429. Surface that to the form as "we're a bit busy, try again in a moment" rather than a generic error.
+- HSR's brand preset hides the phone field by default (`subscriber.phone: "off"`). Marketers can override per-campaign via the `formFields` arg.
+- **Phone Number type quirk** — Beehiiv's `Phone Number` field is type `Number`. E.164 strings like `+447700900123` are coerced to integer `447700900123` (the `+` is stripped). Acceptable for v1; flag if a marketer cares about preserving the country-code prefix.
+- **Never call DELETE on Beehiiv subscribers** — even for test/burner subscribers. User directive: manual cleanup via dashboard only.
+
+### Existing custom fields on HSR's Beehiiv (snapshot 2026-04-29)
+
+When a marketer asks for a form field, **map it to an existing field if any reasonably matches** rather than asking the admin to create a new one.
+
+| Field | Type | Notes |
+|---|---|---|
+| First Name | Text | Default form field |
+| Last Name | Text | |
+| Phone Number | **Number** | E.164 coerced to integer (loses `+`) |
+| Birthday | Date | |
+| Age | Text | Stored as text — accepts ranges like "25-34" |
+| Address Line 1 | Text | |
+| Address Line 2 | Text | |
+| State/Province | Text | |
+| Zip Code | Text | |
+| Postal/Zip Code | Text | (Duplicate of Zip Code — non-US convention) |
+| Employer | Text | |
+| Job Title | Text | |
+| Stage of Career | List | Multi or Single Select — pre-defined options |
+| LinkedIn Profile | Text | |
+| Acquisition Source | Text | **Used automatically by the proxy** to carry the campaign+variant tag |
+| Subscribed On | Date | Set by Beehiiv automatically — don't write |
+| Why You Follow Me | List | |
+| What do you want next? | List | |
+| What you want to see in content | Text | |
+| Where should I go from here? | Text | |
+| Interested in Venture Debt | Text | |
+| Why Did You Upgrade? | List | |
+| Why Did You Upgrade Secondary | Text | |
+| Annual Subscription | List | |
+| Monthly Subscription Reason | List | |
+
+The MCP keeps a `KNOWN_BEEHIIV_FIELDS` constant in `mcp-server/server.js` mirroring this list. Update it whenever HSR's admin adds new fields in the Beehiiv UI — `deploy_landing_page` warns if a campaign uses a field name outside the known list.
+
+### Field-to-existing-field mapping suggestions
+- "their job role" → `Job Title`
+- "where they live" → `State/Province` or `Zip Code` or `Postal/Zip Code`
+- "their LinkedIn" → `LinkedIn Profile`
+- "what stage of career" → `Stage of Career` (List)
+- "where they heard about us" → don't ask; `Acquisition Source` is auto-set per campaign
+
+### Klaviyo specifics (unchanged from v2.2.0 and earlier)
+- Public Company ID is in the brand preset; List ID is per-campaign.
+- The Client API at `/client/profiles/` is designed for browser use — no key in the bundle is fine.
+- See §3 above for the existing Klaviyo guidance.

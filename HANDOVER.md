@@ -160,6 +160,7 @@ Standard `configs/` and custom `custom-configs/` are strictly separate prefixes 
 - **Claude → MCP:** No auth required (optional Bearer token via `MCP_AUTH_TOKEN` env var)
 - **MCP → GCP:** Service account credentials via `GCP_SA_KEY` env var (base64-encoded JSON)
 - **MCP → GoDaddy:** API key/secret via `GODADDY_KEY` / `GODADDY_SECRET` env vars
+- **MCP → Beehiiv:** Bearer API key via `BEEHIIV_API_KEY` env var (HSR brand only). Set on Cloud Run via `gcloud run services update campaign-studio --region=europe-west1 --update-env-vars=BEEHIIV_API_KEY=<key>`. Never enters code, image, or repo. Used exclusively by the public `/api/subscribe-beehiiv` proxy.
 
 ### Service Account Permissions Required
 
@@ -219,10 +220,13 @@ node test-apis.js all    # Tests: GCP auth, GCS, Cloud Build, Cloud Run, GoDaddy
 
 ### Brand Presets
 
-| Brand | Domain | Klaviyo ID | Pixel |
-|-------|--------|-----------|-------|
-| DOAC (The Diary of a CEO) | thediary.com | WjQKGn | not set |
-| WNTT (We Need To Talk) | needtotalkshow.com | SyEtVT | not set |
+| Brand | Domain | Provider | Klaviyo ID / Beehiiv Pub | Pixel |
+|-------|--------|----------|--------------------------|-------|
+| DOAC (The Diary of a CEO) | thediary.com | klaviyo | WjQKGn | not set |
+| WNTT (We Need To Talk) | needtotalkshow.com | klaviyo | SyEtVT | not set |
+| HSR (Hot Smart Rich) | hsrowntheroom.com | **beehiiv** | pub_ea72d441-200a-486d-b0e2-34b65bc386b8 | not set |
+
+HSR is the only brand using Beehiiv. All other brands use Klaviyo. The provider field on the brand preset (`src/brands/<key>.js`) is the source of truth — `deploy_landing_page` rejects mismatches between the brand and the Klaviyo/UTM args.
 
 ### Key Files
 
@@ -345,6 +349,49 @@ MCP_URL=http://localhost:8080/mcp node test-custom-deploy.mjs   # E2E test custo
 - **Container image cleanup in teardown tools.** v1 leaves images in GCR. Needs `roles/storage.admin` on the GCR bucket to delete manifests. v2 should add this.
 - **`og:url` meta tag.** `OG_URL` is exported by `campaign.config.js` but the Vite template's `index.html` doesn't reference it, so the `ogUrl` arg added to `deploy_landing_page`/`update_landing_page` in v2.1.0 has no current effect. Most crawlers fall back to the canonical request URL, so non-blocking, but the meta tag should be added so the field actually does something. Same applies to the optional `ogUrl` on `deploy_custom_page` / `update_custom_page` — it's stored in custom-configs/ for reference but doesn't get baked into the dist (the marketer controls their own dist's HTML).
 - **GCS lifecycle rules.** Apply 30-day delete to `dist/`, `builds/source/`, and possibly `assets/` for serviceNames that no longer have a config. Not done yet.
+
+---
+
+## What changed in v2.3.0 (April 2026)
+
+Adds Beehiiv as a second subscriber provider, alongside the existing Klaviyo flow. Net-additive — existing Klaviyo brands (DOAC, WNTT, all 11 yet-to-be-presetted others) work unchanged.
+
+**New tools:** none. v2.3.0 adds **schema fields** to existing tools rather than tools themselves.
+
+**New schema fields** on `deploy_landing_page` + `update_landing_page`:
+- `utmSource`, `utmMedium`, `utmCampaign` — required for HSR (Beehiiv); rejected for Klaviyo brands
+- `formFields` — per-campaign form schema (replaces the historical hardcoded firstName + email + phone)
+
+**New public HTTP endpoint** on the MCP server: `POST /api/subscribe-beehiiv`
+- Browsers (campaign pages) call this. Server-side, holds `BEEHIIV_API_KEY`.
+- CORS allow-list: `localhost`, `*.run.app`, all brand domains. 10kb body limit. 10/min/IP rate limit.
+- Validates email + custom_fields shape, then forwards to Beehiiv with the system-managed `Acquisition Source` custom field carrying `${campaign_name} — ${variant}` for filtering.
+- Best-effort follow-up call to `POST /publications/.../subscriptions/<id>/tags` to attach the same value as a real Beehiiv tag.
+
+**New brand preset:** `src/brands/hsr.js` — minimal stub (provider config + `subscriber.phone: "off"` default; identity, theme, legal URLs are placeholders for the marketer to fill in when building HSR's first campaign).
+
+**Repo additions:**
+- `src/subscribe.js` — provider-agnostic dispatcher reading `BRAND.provider`
+- `src/beehiiv.js` — client-side proxy fetch wrapper
+- `mcp-server/test-beehiiv.mjs` — standalone Beehiiv API E2E test (creates real burner subscribers; manual cleanup via Beehiiv dashboard — DO NOT add automated DELETE calls, see auto-memory)
+
+**Repo modifications:**
+- `src/SignupForm.jsx` — refactored to render fields from `FORM_FIELDS`, dispatch via `subscribe()`
+- `src/brands/doac.js`, `src/brands/wntt.js` — gained `provider: "klaviyo"` field (explicit, was implicit before)
+- `src/campaign.config.js` — exports `BRAND`, `BRAND_KEY`, `UTM_SOURCE`/`MEDIUM`/`CAMPAIGN`, `FORM_FIELDS`
+- `mcp-server/server.js` — proxy endpoint + rate limiter + brand×provider validation in `deploy_landing_page` + `KNOWN_BEEHIIV_FIELDS` constant + `SERVER_INSTRUCTIONS` provider-routing guidance
+- `mcp-server/credentials/config.example.json` — `hsr` domain alias added alongside `hsrowntheroom`
+
+**Architectural note — why a proxy:** Klaviyo's Client API is designed for browser use (write-only, no secret needed). Beehiiv requires a Bearer API key for every call. We MUST NOT put it in the static React bundle (anyone could extract it from DevTools), so all Beehiiv subscribe calls go through the MCP server's proxy endpoint. Same Cloud Run service, just one new Express route.
+
+**Critical operational caveat — Beehiiv custom fields:** Beehiiv silently drops values for custom fields that don't already exist on the publication. The MCP keeps a `KNOWN_BEEHIIV_FIELDS` list (currently 25 fields confirmed on HSR's publication) and warns the marketer if a campaign's `formFields` references something outside that list. Update the `KNOWN_BEEHIIV_FIELDS` constant in `server.js` whenever HSR's admin adds new fields in the Beehiiv UI.
+
+**Rolled out:**
+- Server v2.3.0 deployed to Cloud Run as immutable tag `:20260429-110002` (revision `campaign-studio-00022-2jv`)
+- `BEEHIIV_API_KEY` env var set on Cloud Run service (revision 00021 had it set first; 00022 inherits)
+- Smoke check + out-of-band `tools/list` confirmed all new schema fields visible to fresh sessions
+- Phase 0 burner-API validation passed (subscriber created, UTM round-trip, Acquisition Source carries tag, separate tags endpoint works, Phone Number coerces E.164 to integer)
+- Local proxy + prod proxy round-trip tests both created real Beehiiv subscribers cleanly
 
 ---
 

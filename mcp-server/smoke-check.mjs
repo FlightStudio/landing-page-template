@@ -45,8 +45,8 @@ if (liveVersion !== expectedVersion) {
 }
 
 const expectedSchema = {
-  deploy_landing_page: ["brand", "serviceName", "ogDescription", "ogImagePath", "ogUrl"],
-  update_landing_page: ["serviceName", "ogDescription", "ogImagePath", "ogUrl"],
+  deploy_landing_page: ["brand", "serviceName", "ogDescription", "ogImagePath", "ogUrl", "utmSource", "utmMedium", "utmCampaign", "formFields"],
+  update_landing_page: ["serviceName", "ogDescription", "ogImagePath", "ogUrl", "utmSource", "utmMedium", "utmCampaign", "formFields"],
   list_brands: [],
   upload_asset: ["serviceName", "fileName", "base64Content"],
   setup_domain: ["serviceName", "subdomain", "brand"],

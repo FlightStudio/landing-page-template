@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { subscribeToKlaviyo, identifyKlaviyo, normalisePhone } from "./klaviyo";
+import { subscribe } from "./subscribe";
+import { normalisePhone } from "./klaviyo";
 import { ensureRudderStackSDK } from "./consent";
 import {
   CAMPAIGN_SLUG,
@@ -8,6 +9,7 @@ import {
   PRIVACY_POLICY_URL,
   TERMS_URL,
   CONTENT,
+  FORM_FIELDS,
 } from "./campaign.config";
 
 const DIAL_CODES = [
@@ -52,7 +54,9 @@ const DIAL_CODES = [
 ];
 
 export default function SignupForm({ variant, onSuccess }) {
-  const [form, setForm] = useState({ firstName: "", email: "", phone: "" });
+  // State seeded from FORM_FIELDS — every key in the schema gets an empty string.
+  const initialForm = Object.fromEntries(FORM_FIELDS.map((f) => [f.key, ""]));
+  const [form, setForm] = useState(initialForm);
   const [dialCode, setDialCode] = useState("+44");
   const [emailConsent, setEmailConsent] = useState(false);
   const [smsConsent, setSmsConsent] = useState(false);
@@ -63,61 +67,73 @@ export default function SignupForm({ variant, onSuccess }) {
     return (e) => setForm((prev) => ({ ...prev, [field]: e.target.value }));
   }
 
-  const hasPhone = form.phone.trim().length > 0;
+  const phoneField = FORM_FIELDS.find((f) => f.type === "tel");
+  const hasPhone = phoneField && form[phoneField.key]?.trim().length > 0;
 
   async function handleSubmit(e) {
     e.preventDefault();
 
     // Required fields
-    if (!form.firstName.trim() || !form.email.trim()) {
-      setErrorMsg("Please fill in your name and email.");
-      setStatus("error");
-      return;
+    for (const field of FORM_FIELDS) {
+      if (field.required && !form[field.key]?.trim()) {
+        setErrorMsg(`Please fill in ${field.label.toLowerCase()}.`);
+        setStatus("error");
+        return;
+      }
     }
 
-    // Email consent is required
+    // Email consent is always required
     if (!emailConsent) {
       setErrorMsg("Please consent to email marketing to continue.");
       setStatus("error");
       return;
     }
 
-    // If phone entered, SMS consent is required
+    // SMS consent if phone entered
     if (hasPhone && !smsConsent) {
       setErrorMsg("Please consent to SMS marketing or remove your phone number.");
       setStatus("error");
       return;
     }
 
-    // Validate phone format if provided
-    let normalisedPhone = null;
-    if (hasPhone) {
-      normalisedPhone = normalisePhone(form.phone, dialCode);
-      if (!normalisedPhone) {
+    // Build the values dictionary. Phone gets E.164 normalisation if present.
+    const values = { ...form };
+    Object.keys(values).forEach((k) => {
+      if (typeof values[k] === "string") values[k] = values[k].trim();
+    });
+    if (phoneField && values[phoneField.key]) {
+      const normalised = normalisePhone(values[phoneField.key], dialCode);
+      if (!normalised) {
         setErrorMsg("Please enter a valid phone number.");
         setStatus("error");
         return;
       }
+      values[phoneField.key] = normalised;
     }
 
     setStatus("submitting");
     setErrorMsg("");
 
     try {
-      const payload = {
-        email: form.email.trim(),
-        firstName: form.firstName.trim(),
-        phone: normalisedPhone,
+      const result = await subscribe({
+        email: values.email,
         variant,
-      };
+        values,
+      });
 
-      const res = await subscribeToKlaviyo(payload);
-
-      if (res.ok || res.status === 202) {
-        // Stash submission data so consent-accepted can re-fire these if needed
-        window.__formSubmission = { payload, variant };
-
-        identifyKlaviyo(payload);
+      if (result.ok) {
+        // Stash submission so CookieConsent can replay Klaviyo identify after consent.
+        // Shape preserved for back-compat with CookieConsent.jsx.
+        window.__formSubmission = {
+          payload: {
+            email: values.email,
+            firstName: values.firstName,
+            phone: values.phone,
+            variant,
+          },
+          values,
+          variant,
+        };
 
         // RudderStack — fires regardless of cookie consent
         ensureRudderStackSDK();
@@ -132,7 +148,7 @@ export default function SignupForm({ variant, onSuccess }) {
 
         onSuccess();
       } else {
-        setErrorMsg("Something went wrong. Please try again.");
+        setErrorMsg(result.error || "Something went wrong. Please try again.");
         setStatus("error");
       }
     } catch {
@@ -147,46 +163,46 @@ export default function SignupForm({ variant, onSuccess }) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <input
-        type="text"
-        placeholder="First name"
-        value={form.firstName}
-        onChange={updateField("firstName")}
-        disabled={isSubmitting}
-        className={inputClass}
-      />
-
-      <input
-        type="email"
-        placeholder="Email address"
-        value={form.email}
-        onChange={updateField("email")}
-        disabled={isSubmitting}
-        className={inputClass}
-      />
-
-      <div className="flex gap-2">
-        <select
-          value={dialCode}
-          onChange={(e) => setDialCode(e.target.value)}
-          disabled={isSubmitting}
-          className="bg-transparent border-b border-outline focus:border-tertiary outline-none py-2.5 font-body text-sm text-on-surface transition-colors disabled:opacity-50 cursor-pointer"
-        >
-          {DIAL_CODES.map((dc) => (
-            <option key={dc.code} value={dc.code} className="bg-surface text-on-surface">
-              {dc.label}
-            </option>
-          ))}
-        </select>
-        <input
-          type="tel"
-          placeholder="Phone number (optional)"
-          value={form.phone}
-          onChange={updateField("phone")}
-          disabled={isSubmitting}
-          className={inputClass}
-        />
-      </div>
+      {FORM_FIELDS.map((field) => {
+        // Phone gets the dial-code selector + E.164 normalisation on submit
+        if (field.type === "tel") {
+          return (
+            <div key={field.key} className="flex gap-2">
+              <select
+                value={dialCode}
+                onChange={(e) => setDialCode(e.target.value)}
+                disabled={isSubmitting}
+                className="bg-transparent border-b border-outline focus:border-tertiary outline-none py-2.5 font-body text-sm text-on-surface transition-colors disabled:opacity-50 cursor-pointer"
+              >
+                {DIAL_CODES.map((dc) => (
+                  <option key={dc.code} value={dc.code} className="bg-surface text-on-surface">
+                    {dc.label}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="tel"
+                placeholder={field.label}
+                value={form[field.key] || ""}
+                onChange={updateField(field.key)}
+                disabled={isSubmitting}
+                className={inputClass}
+              />
+            </div>
+          );
+        }
+        return (
+          <input
+            key={field.key}
+            type={field.type || "text"}
+            placeholder={field.label}
+            value={form[field.key] || ""}
+            onChange={updateField(field.key)}
+            disabled={isSubmitting}
+            className={inputClass}
+          />
+        );
+      })}
 
       {/* Email marketing consent — always visible, required */}
       <label className="flex items-start gap-3 cursor-pointer pt-2">

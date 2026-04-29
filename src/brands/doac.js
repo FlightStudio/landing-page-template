@@ -13,6 +13,9 @@ export default {
   shortName: "DOAC",
   logo: "/assets/doac-logo-white.png",
 
+  // ── Subscriber provider ──────────────────────────────────────────
+  provider: "klaviyo",
+
   // ── Klaviyo ──────────────────────────────────────────────────────
   klaviyoCompanyId: "WjQKGn",
 
