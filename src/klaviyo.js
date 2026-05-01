@@ -18,6 +18,24 @@ const NATIONAL_LENGTHS = {
 };
 
 /**
+ * Extract the apex domain from window.location.hostname.
+ * Returns the last two dot-separated parts (works for single-TLD domains like .com).
+ *
+ *   signup.thediary.com       → thediary.com
+ *   quiz.needtotalkshow.com   → needtotalkshow.com
+ *   localhost / 127.0.0.1     → returned as-is (dev preview)
+ *
+ * Used to set Klaviyo's $source field consistently across subdomains, so
+ * marketers can segment by apex domain without splitting per-subdomain.
+ */
+function getApexDomain() {
+  const host = window.location.hostname;
+  if (!host.includes(".") || /^\d/.test(host)) return host;
+  const parts = host.split(".");
+  return parts.slice(-2).join(".");
+}
+
+/**
  * Normalise a phone number to E.164 format.
  * @param {string} raw - User-entered phone number
  * @param {string} dialCode - Country dial code including "+" (e.g. "+44")
@@ -69,6 +87,7 @@ export async function subscribeToKlaviyo({ email, firstName, phone, variant }) {
     subscriptions,
     properties: {
       consent_source: CONSENT_SOURCE,
+      $source: getApexDomain(),
       landing_page: CAMPAIGN_SLUG,
       [`${CAMPAIGN_SLUG}_variant`]: variant,
       campaign: CAMPAIGN_NAME,
@@ -121,6 +140,7 @@ export function identifyKlaviyo({ email, firstName, phone, variant }, extraPrope
   const identity = {
     $email: email,
     $first_name: firstName,
+    $source: getApexDomain(),
     landing_page: CAMPAIGN_SLUG,
     [`${CAMPAIGN_SLUG}_variant`]: variant,
     ...extraProperties,
