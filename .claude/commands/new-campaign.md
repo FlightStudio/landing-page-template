@@ -2,28 +2,75 @@ You are setting up a new landing page campaign. Read `.claude/commands/CAMPAIGN_
 
 Guide the user through these phases. Move through them naturally — don't number them or say "Phase 1". Just have a conversation.
 
-## Pre-flight: Verify the MCP is connected (ALWAYS the first thing — never skip)
+## Pre-flight: Verify the FULL MCP toolset is connected (ALWAYS the first thing — never skip)
 
-Before asking the marketer any campaign questions, **silently check that the Campaign Studio MCP tools are available in this Claude Code session**. The tools are how you actually deploy anything — without them, the rest of the conversation is pointless.
+Before asking the marketer any campaign questions, **silently check that EVERY tool the campaign flow will need is available in this Claude Code session**. The pre-flight check exists to prevent the worst failure mode: marketer goes through the whole brief, you call `deploy_landing_page` two minutes later, and the tool isn't actually exposed by the MCP — they have to close VS Code, restart, and start the brief over.
 
-How to check:
+`list_brands` working does NOT mean `deploy_landing_page` works. Partial-connection states are real (e.g. Claude Desktop connector loaded a stale subset of tools, MCP server was redeployed but the client hasn't refreshed, the marketer is on the http connector but only some tools registered). Check the entire inventory.
 
-1. Look at your tool inventory — are tools like `list_brands`, `deploy_landing_page`, `setup_domain`, `upload_dist`, `deploy_custom_page` present? You can confirm by silently calling `list_brands` (it's read-only and returns the brand presets).
-2. **If yes** — proceed to Phase 1.
-3. **If no — STOP. Don't ask any campaign questions.** Tell the marketer:
+### How to check
 
-   > "Before we build anything, I need to confirm the Campaign Studio MCP is connected — right now I can't see the deploy tools in this session. To fix it:
-   >
-   > 1. From the repo root, run: `./scripts/setup.sh`
-   > 2. If it complains about missing credentials, ask Matt to DM you the service account JSON file and drop it in `mcp-server/credentials/` — then re-run setup.sh.
-   > 3. **Restart Claude Code** (close and reopen the editor) — Claude Code caches the MCP connector list at session start, so changes from setup.sh need a fresh session to take effect.
-   > 4. Re-open this folder and run `/new-campaign` again.
-   >
-   > Once `list_brands` works for me I'll know we're good."
+Look at your tool inventory — these **11 tools must all be present** before you start the brief:
 
-   This check exists because the most common failure pattern is: marketer clones the repo, opens it in Claude Code, runs `/new-campaign`, gets all the way to deploy time, and only then discovers the MCP isn't wired up. Catching it before any campaign work means no wasted brief.
+| Tool | Used in |
+|---|---|
+| `list_brands` | Phase 1 brand selection |
+| `deploy_landing_page` | Phase 5 deploy (standard signup) |
+| `update_landing_page` | Phase 5 iterate (standard signup) |
+| `upload_asset` | Phase 3 image swap |
+| `teardown_landing_page` | Phase 5 cleanup |
+| `upload_dist` | Phase 5 deploy (custom-page / imported HTML) |
+| `deploy_custom_page` | Phase 5 deploy (custom-page / imported HTML) |
+| `update_custom_page` | Phase 5 iterate (custom-page / imported HTML) |
+| `teardown_custom_page` | Phase 5 cleanup (custom-page / imported HTML) |
+| `setup_domain` | Phase 5 custom domain |
+| `check_ssl_status` | Phase 5 SSL verification |
 
-4. Run this check at the **start of every `/new-campaign` invocation**, even within the same Claude Code session — schemas can refresh and the cost of a single `list_brands` call is trivial.
+To verify quickly: call `list_brands` once (it's read-only). If that works, also confirm the other 10 tool **names** are present in your tool inventory. Don't actually call the destructive ones — just check the names.
+
+### If ANY tool is missing — STOP. Don't ask a single campaign question.
+
+```
+"Before we build anything, I need the Campaign Studio MCP fully connected — right
+now I can see [list which tools you can see, e.g. 'list_brands but not
+deploy_landing_page or upload_dist']. Without all of them the deploy step at the
+end won't work, and we don't want to waste your time on a brief we can't ship.
+
+To fix:
+1. From the repo root, run: `./scripts/setup.sh`
+2. If it complains about missing credentials, ask Matt to DM you the service
+   account JSON file and drop it in `mcp-server/credentials/`. Re-run setup.sh.
+3. **Close and reopen VS Code completely.** (Claude Code caches the MCP tool
+   list at session start. A reload-window isn't enough — full quit + relaunch.)
+4. Reopen this folder, run `/new-campaign` again. I'll re-check the full inventory.
+
+I won't ask any brief questions until all 11 tools are visible."
+```
+
+Run this check at the **start of every `/new-campaign` invocation**, even within the same session — schemas can refresh, and a single `list_brands` call plus inventory inspection is trivial cost vs. losing a marketer's brief.
+
+### Recovery — if a tool fails MID-FLOW despite passing pre-flight
+
+The pre-flight catches most cases, but tool availability can technically change during a long session (MCP server redeploy, network blip, client-side cache eviction). If you call a tool later and it fails with "tool not found", "transport closed", or similar transport-level error (not a tool-internal error like a bad arg or 4xx response):
+
+1. **Don't retry blindly.** It won't recover within this session.
+2. **Stash the marketer's context immediately.** Tell them:
+   ```
+   "The MCP just dropped one of the deploy tools — [tool name]. Don't worry,
+   none of the brief is lost. Before I forget anything, here's everything
+   you've told me so far so you can paste it back into a fresh session:
+
+   [recap the brief: brand, provider, campaign name, content, variants,
+    formFields, UTM/Klaviyo list, anything custom they asked for]
+
+   Now: close VS Code completely, reopen, and run /new-campaign again.
+   When I ask for the brief, paste that recap back. I'll pick up where we
+   left off and re-run the failing step."
+   ```
+3. The recap is the recovery — the marketer doesn't need to re-explain anything.
+4. After they restart, re-run pre-flight first. If it fails again, the underlying issue isn't transient — escalate to the developer who set up the MCP.
+
+This recovery flow assumes the MCP was working when pre-flight ran but failed later. If pre-flight didn't actually pass and you skipped it, that's the bug — Phase 0 is mandatory.
 
 ## Phase 0: Template offer (ask before collecting the brief)
 
