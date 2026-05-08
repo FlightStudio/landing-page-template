@@ -4,41 +4,205 @@ Build, preview, and deploy landing pages and quizzes for Flight Studio brands. P
 
 ---
 
-## Setup (one-time)
+## Setup (one-time) — from zero to ready in 9 steps
 
-You need two things installed:
+This walkthrough assumes you have a fresh laptop and have never installed any of this. **You won't need to use a terminal directly** — once Claude Code is running, you'll just tell it what to do in plain English. Allow ~15–20 minutes end to end.
 
-1. **Node.js** — [nodejs.org](https://nodejs.org) (pick the LTS version). Verify with `node --version`.
-2. **Claude Code** — [claude.ai/code](https://claude.ai/code) (recommended: install as an extension in VS Code or Cursor).
+After each step there's a **"What you should see"** check. If you don't see what's described, jump to the [Troubleshooting](#troubleshooting-setup) section at the bottom of this section.
 
-Then:
+---
 
-```bash
-# Clone the repo (ask Matt for the URL if you don't have it)
-git clone https://github.com/FlightStudio/landing-page-template.git
-cd landing-page-template
+### Step 1 — Install Node.js
 
-# One-time setup — installs deps + wires Claude Code at the production MCP
-./scripts/setup.sh
+1. Open your browser and go to **[nodejs.org](https://nodejs.org)**.
+2. You'll see two big green buttons. Click the one labelled **"LTS"** (it's on the left, says "Recommended For Most Users").
+3. The installer downloads (a `.pkg` file on Mac, a `.msi` on Windows). Open it once it's downloaded.
+4. Click through the installer — accept the licence, click **Continue / Next / Install** at every prompt, enter your password if asked, then **Close** when it's done.
+
+**What you should see:** the installer ends with a green checkmark or "Installation was successful" message. You don't need to verify anything in a terminal — just trust the installer.
+
+---
+
+### Step 2 — Install VS Code
+
+(Skip if you already have VS Code. If you have Cursor instead, that also works — Cursor is a fork of VS Code and has Claude Code support too.)
+
+1. Go to **[code.visualstudio.com](https://code.visualstudio.com)**.
+2. Click the big blue **Download** button. The site auto-detects your OS (Mac / Windows / Linux).
+3. Open the downloaded file. On Mac, drag the **Visual Studio Code** icon to your **Applications** folder. On Windows, run the installer.
+4. Open VS Code. On first launch it'll ask about a colour theme and offer a tour — pick whatever, you can change later.
+
+**What you should see:** VS Code opens to a Welcome tab with a list of "Start" actions on the left (New File, Open File, Clone Git Repository…). The left edge of the window has a vertical strip of icons (Files, Search, Source Control, Run, Extensions).
+
+---
+
+### Step 3 — Install the Claude Code extension and sign in
+
+1. In VS Code, look at the vertical strip of icons on the **left edge of the window**. Click the one that looks like **four squares stacked together** (the Extensions icon). Or use the keyboard shortcut: **Cmd+Shift+X** (Mac) / **Ctrl+Shift+X** (Windows/Linux).
+2. A search box appears at the top. Type **"Claude Code"**.
+3. The first result should be **"Claude Code"** by **Anthropic** (the publisher must say Anthropic — not a copycat). Click the blue **Install** button next to it.
+4. After install, VS Code will show a small notification asking you to **Reload Window** or **Restart**. Click it.
+5. After reload, look at the vertical icon strip again — there's a new icon shaped like the **Claude logo** (asterisk-like). Click it.
+6. The Claude panel opens. You'll see a **"Sign in to Claude"** button. Click it.
+7. A browser window opens to **claude.ai**. Sign in with your **Anthropic account** (the same account you use for Claude.ai). After authenticating, you'll see "You can return to VS Code now" — close the browser tab and switch back to VS Code.
+
+**What you should see:** the Claude panel in VS Code now shows a chat input box at the bottom and a welcome message. You're ready to talk to Claude.
+
+---
+
+### Step 4 — Get added to the GitHub repo (and clone it via Claude)
+
+The repo is private to FlightStudio, so you need to be added as a collaborator first.
+
+1. **Send Matt your GitHub username.** Wait for him to confirm he's added you. Once added, you'll get an email from GitHub saying "MTFlightStudio invited you to collaborate on FlightStudio/landing-page-template" — click **View invitation** in the email and **Accept**.
+2. Back in VS Code, click the Claude icon in the left strip to open the Claude panel.
+3. **Copy this prompt and paste it into Claude's chat box, then press Enter:**
+
+   ```
+   I'm setting up the Campaign Studio for the first time. Please clone
+   https://github.com/FlightStudio/landing-page-template.git into my
+   home folder, and once cloned, open the landing-page-template folder
+   in this same VS Code window so we can keep working in it.
+   ```
+4. Claude will say something like "I'll run `git clone …` to do that — approve?" and show an **Approve** button. Click **Approve**. (Claude can run commands on your machine with your permission. Each new command shows a fresh approve prompt — that's intentional.)
+5. After cloning, Claude opens the folder. VS Code may ask **"Do you trust the authors of the files in this folder?"** — click **Yes, I trust the authors**.
+
+**What you should see:** the file tree in VS Code's left panel now shows folders like `mcp-server`, `src`, `scripts`, `templates`, plus files like `README.md` and `package.json`. The Claude panel says clone succeeded.
+
+---
+
+### Step 5 — Drop the credentials file in place
+
+Matt will DM you a credentials file (a `.json` file with a name like `steven-warehouse-dev-XXXXX.json`). It looks like a long block of text — don't open it, just save it to disk.
+
+1. Save the file Matt sent to your **Downloads** folder (your browser/Slack will do this automatically when you click the file).
+2. Tell Claude:
+
+   ```
+   Matt just sent me the credentials file. It's in my Downloads folder
+   and the filename starts with "steven-warehouse-dev-". Please move it
+   into the mcp-server/credentials/ folder of this repo.
+   ```
+3. Claude shows the move command. Click **Approve**.
+
+**What you should see:** Claude confirms the file is now at `mcp-server/credentials/steven-warehouse-dev-…json`. (The credentials folder is in `.gitignore` — the file never leaves your machine.)
+
+---
+
+### Step 6 — Run the one-time setup
+
+This installs project dependencies and writes a configuration file that tells Claude Code about the Campaign Studio MCP.
+
+Tell Claude:
+
+```
+Please run ./scripts/setup.sh from the repo root to do the one-time setup.
 ```
 
-Then open the folder in **VS Code / Cursor with Claude Code** (or in Claude Desktop's Code mode). The Campaign Studio MCP is auto-detected via the `.mcp.json` the setup script writes.
+Claude will run the script and show you the output. It takes ~30 seconds. The script ends with a message like **"Generated .mcp.json"** and **"Done!"**.
 
-To verify everything's connected, ask Claude:
+**What you should see:** Claude's reply includes the line `Generated .mcp.json (gitignored)` near the end. If it complains about missing credentials, you skipped or mis-named Step 5 — fix that and re-run.
 
-> "Can you see the Campaign Studio MCP tools?"
+To double-check the file got written, ask Claude:
 
-You should see **11 tools** in two flows:
+```
+Confirm that .mcp.json exists at the repo root and tell me what server it's configured to use.
+```
 
-- **Standard signup pages** (DOAC / WNTT): `list_brands`, `deploy_landing_page`, `update_landing_page`, `upload_asset`, `teardown_landing_page`.
-- **Custom-coded pages** (bespoke designs, ticket pages, anything outside the signup template): `upload_dist`, `deploy_custom_page`, `update_custom_page`, `teardown_custom_page`.
-- **Shared** (both modes use these): `setup_domain`, `check_ssl_status`.
+Claude should reply with a short summary saying yes the file exists and it's configured for `campaign-studio` via stdio transport.
 
-**Credentials:** the production MCP runs on Cloud Run with its own service account, so you don't need GCP creds locally. If Matt sends you a credentials file (only needed if you're developing the MCP itself, not just using it), drop it in `mcp-server/credentials/` — the folder is gitignored.
+---
 
-### Alternative: Claude Desktop (instead of Claude Code)
+### Step 7 — Restart VS Code so Claude Code picks up the new MCP
 
-If you'd rather use the Claude Desktop app:
+This is the step everybody forgets, and it's the #1 reason the MCP "isn't working" later.
+
+1. **Quit VS Code completely** — `Cmd+Q` on Mac, or **File → Exit** on Windows. (Not just close the window — fully quit the app, otherwise the extension keeps using its old configuration.)
+2. Reopen VS Code.
+3. Use **File → Open Recent** and pick `landing-page-template`, OR **File → Open Folder** and navigate to where you cloned it.
+4. Click the Claude icon in the left strip.
+
+**What you should see:** when you reopen the folder, VS Code may show a notification at the bottom-right saying something like **"This workspace has MCP servers configured. Approve?"** — click **Approve** or **Trust**. If you don't see that popup, it might have appeared briefly and dismissed; not a problem, the next step verifies.
+
+---
+
+### Step 8 — Verify the MCP is connected and all 11 tools are available
+
+In the Claude chat box, paste this prompt and send:
+
+```
+Check whether the Campaign Studio MCP is connected to this session.
+List every MCP tool you can see by name and confirm there are exactly
+11 tools total. Don't proceed with anything else until that's confirmed.
+```
+
+Claude should reply listing **11 tools by name**:
+
+| # | Tool | What it does |
+|---|------|--------------|
+| 1 | `list_brands` | Show available brand presets |
+| 2 | `deploy_landing_page` | Deploy a standard signup campaign |
+| 3 | `update_landing_page` | Update an existing standard campaign |
+| 4 | `upload_asset` | Upload images/media to a campaign |
+| 5 | `teardown_landing_page` | Delete a standard campaign |
+| 6 | `upload_dist` | Upload a built static site (custom-page mode) |
+| 7 | `deploy_custom_page` | Deploy a custom-built page |
+| 8 | `update_custom_page` | Update a custom-built page |
+| 9 | `teardown_custom_page` | Delete a custom-built page |
+| 10 | `setup_domain` | Wire a subdomain + SSL via GoDaddy + Cloud Run |
+| 11 | `check_ssl_status` | Check whether a custom subdomain's SSL is live |
+
+**What you should see:** Claude's reply lists all 11 tools by exact name and says something like "yes, all 11 tools are available, MCP is connected." If fewer than 11 appear, OR Claude says it can't see the MCP at all, jump to [Troubleshooting](#troubleshooting-setup) — **don't skip ahead**.
+
+---
+
+### Step 9 — Start your first campaign
+
+You're set up. From now on, every time you want to build a landing page:
+
+1. Open VS Code.
+2. Open the `landing-page-template` folder (File → Open Recent).
+3. Click the Claude icon, then in the chat box type:
+
+   ```
+   /new-campaign
+   ```
+4. Press Enter. Claude takes over from there — it'll ask what brand, what subscriber provider (Klaviyo or Beehiiv for HSR), what copy, what variants, and so on. Just answer in plain English.
+
+The first thing `/new-campaign` does is automatically re-run the 11-tools check from Step 8 — so even if something has drifted between sessions, you'll know before you start writing the brief.
+
+---
+
+### <a id="troubleshooting-setup"></a>Troubleshooting (setup)
+
+If something didn't match the "what you should see" check at any step:
+
+| Symptom | What's likely wrong | Fix |
+|---|---|---|
+| Claude panel doesn't appear after installing the extension | Extension didn't fully load | Reload window: **Cmd+Shift+P** → type "Reload Window" → Enter |
+| "Sign in to Claude" button keeps reopening the browser | Sign-in didn't stick | Close VS Code completely, reopen, click Sign in again. If still failing, restart your machine and try once more. |
+| `git clone` failed with "Repository not found" or "Permission denied" | You're not yet a collaborator OR your VS Code isn't authenticated to GitHub | Confirm Matt has added you and you accepted the email invite. Then in VS Code: **Cmd+Shift+P** → "GitHub: Sign in" → authenticate. |
+| `setup.sh` exits with "No service account key found" | The credentials file from Step 5 isn't where Claude expects it | Make sure the file's exact path is `mcp-server/credentials/steven-warehouse-dev-XXXXX.json` (any filename starting with `steven-warehouse-dev` and ending `.json` works). Then ask Claude to re-run setup.sh. |
+| Step 8 shows fewer than 11 tools | VS Code wasn't fully quit between Step 6 and Step 7 | Quit VS Code completely (`Cmd+Q`, not just close window), reopen, repeat Step 8. |
+| Step 8 shows zero tools / "MCP not connected" | `.mcp.json` wasn't generated, or Claude Code didn't see it | Tell Claude: `Check that .mcp.json exists at the repo root. If it doesn't, re-run ./scripts/setup.sh and tell me why it failed.` |
+| The MCP approval popup didn't appear when you opened the folder | Sometimes the popup dismisses too fast or the workspace has been opened before | In VS Code: **Cmd+Shift+P** → "Claude Code: Manage MCP servers" → ensure Campaign Studio is listed and **enabled**. |
+| `/new-campaign` slash command isn't recognised by Claude | Old version of the repo, or Claude Code missed the slash-commands folder | Tell Claude: `Run git pull origin main from the repo root.` Then close & reopen VS Code. Then try `/new-campaign` again. |
+
+If none of those fix it, paste this into the Claude chat:
+
+```
+Setup is broken at step <N>. <Describe what you see — copy exact error
+text or screenshot it.> Please diagnose the issue, suggest the fix,
+and walk me through it step by step.
+```
+
+Claude will read the repo's diagnostics and walk you through. If it hits something it can't resolve, ping Matt.
+
+---
+
+### Alternative: Claude Desktop (instead of VS Code with Claude Code)
+
+If you'd rather use the standalone Claude Desktop app:
 
 1. Install from [claude.ai/download](https://claude.ai/download), sign in.
 2. Settings (gear icon) → **Connectors** → **+** → fill in:
@@ -47,17 +211,7 @@ If you'd rather use the Claude Desktop app:
    - Leave OAuth fields blank
 3. Click **Add**, then open the `landing-page-template` folder as a project (File → Open Folder) and switch to the **Code** tab.
 
-Both paths give you the same 11 tools. Pick whichever editor you're already using.
-
-### Verify before you start (do this on every new clone)
-
-The most common failure pattern is: clone repo → open in Claude Code → start `/new-campaign` → get all the way to deploy → discover the MCP isn't actually wired up. Catch it up front:
-
-1. From the repo root, run `./scripts/setup.sh`. Re-run if it complains about missing credentials (drop the SA file Matt sent in `mcp-server/credentials/` and try again).
-2. **Restart Claude Code** (close and reopen) so it picks up the freshly-written `.mcp.json`.
-3. Open the folder again in Claude Code, type `/new-campaign`. Claude's first action is a pre-flight check that verifies the MCP tools are visible — if they're not, it'll stop and walk you through fixing it before any campaign work starts.
-
-If `/new-campaign` skips straight to questions about brand/Klaviyo without confirming the MCP first, it's an old version of the slash command — `git pull` to refresh.
+Both paths give you the same 11 tools. Pick whichever editor you're already using. The rest of this README assumes the VS Code path.
 
 ---
 
