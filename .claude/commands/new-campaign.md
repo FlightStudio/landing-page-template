@@ -38,7 +38,7 @@ end won't work, and we don't want to waste your time on a brief we can't ship.
 
 To fix:
 1. From the repo root, run: `./scripts/setup.sh`
-2. If it complains about missing credentials, ask Matt to DM you the service
+2. If it complains about missing credentials, ask Ziga to DM you the service
    account JSON file and drop it in `mcp-server/credentials/`. Re-run setup.sh.
 3. **Close and reopen VS Code completely.** (Claude Code caches the MCP tool
    list at session start. A reload-window isn't enough — full quit + relaunch.)

@@ -24,7 +24,7 @@ SA_FILE=$(find "$SA_DIR" -maxdepth 1 -name "steven-warehouse-dev*.json" 2>/dev/n
 if [ -z "$SA_FILE" ]; then
   echo ""
   echo "⚠  No service account key found in mcp-server/credentials/"
-  echo "   Ask Matt to DM you the credentials file, then drop it in:"
+  echo "   Ask Ziga to DM you the credentials file, then drop it in:"
   echo "   $SA_DIR/"
   echo "   and re-run this script."
   exit 1

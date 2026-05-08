@@ -54,7 +54,7 @@ After each step there's a **"What you should see"** check. If you don't see what
 
 The repo is private to FlightStudio, so you need to be added as a collaborator first.
 
-1. **Send Matt your GitHub username.** Wait for him to confirm he's added you. Once added, you'll get an email from GitHub saying "MTFlightStudio invited you to collaborate on FlightStudio/landing-page-template" — click **View invitation** in the email and **Accept**.
+1. **Send Ziga your GitHub username. Accept the email invite.**
 2. Back in VS Code, click the Claude icon in the left strip to open the Claude panel.
 3. **Copy this prompt and paste it into Claude's chat box, then press Enter:**
 
@@ -73,17 +73,17 @@ The repo is private to FlightStudio, so you need to be added as a collaborator f
 
 ### Step 5 — Drop the credentials file in place
 
-Matt will DM you a credentials file (a `.json` file with a name like `steven-warehouse-dev-XXXXX.json`). It looks like a long block of text — don't open it, just save it to disk.
+Ziga DMs you a `steven-warehouse-dev-4ba5a175d21c.json`. Save it to **Downloads**.
 
-1. Save the file Matt sent to your **Downloads** folder (your browser/Slack will do this automatically when you click the file).
-2. Tell Claude:
+Tell Claude:
 
-   ```
-   Matt just sent me the credentials file. It's in my Downloads folder
-   and the filename starts with "steven-warehouse-dev-". Please move it
-   into the mcp-server/credentials/ folder of this repo.
-   ```
-3. Claude shows the move command. Click **Approve**.
+```
+Ziga just sent me the credentials file. It's in my Downloads folder
+and the filename starts with "steven-warehouse-dev-". Please move it
+into the mcp-server/credentials/ folder of this repo.
+```
+
+Click **Approve** when Claude asks.
 
 **What you should see:** Claude confirms the file is now at `mcp-server/credentials/steven-warehouse-dev-…json`. (The credentials folder is in `.gitignore` — the file never leaves your machine.)
 
@@ -181,7 +181,7 @@ If something didn't match the "what you should see" check at any step:
 |---|---|---|
 | Claude panel doesn't appear after installing the extension | Extension didn't fully load | Reload window: **Cmd+Shift+P** → type "Reload Window" → Enter |
 | "Sign in to Claude" button keeps reopening the browser | Sign-in didn't stick | Close VS Code completely, reopen, click Sign in again. If still failing, restart your machine and try once more. |
-| `git clone` failed with "Repository not found" or "Permission denied" | You're not yet a collaborator OR your VS Code isn't authenticated to GitHub | Confirm Matt has added you and you accepted the email invite. Then in VS Code: **Cmd+Shift+P** → "GitHub: Sign in" → authenticate. |
+| `git clone` failed with "Repository not found" or "Permission denied" | You're not yet a collaborator OR your VS Code isn't authenticated to GitHub | Confirm Ziga has added you and you accepted the email invite. Then in VS Code: **Cmd+Shift+P** → "GitHub: Sign in" → authenticate. |
 | `setup.sh` exits with "No service account key found" | The credentials file from Step 5 isn't where Claude expects it | Make sure the file's exact path is `mcp-server/credentials/steven-warehouse-dev-XXXXX.json` (any filename starting with `steven-warehouse-dev` and ending `.json` works). Then ask Claude to re-run setup.sh. |
 | Step 8 shows fewer than 11 tools | VS Code wasn't fully quit between Step 6 and Step 7 | Quit VS Code completely (`Cmd+Q`, not just close window), reopen, repeat Step 8. |
 | Step 8 shows zero tools / "MCP not connected" | `.mcp.json` wasn't generated, or Claude Code didn't see it | Tell Claude: `Check that .mcp.json exists at the repo root. If it doesn't, re-run ./scripts/setup.sh and tell me why it failed.` |
@@ -196,7 +196,7 @@ text or screenshot it.> Please diagnose the issue, suggest the fix,
 and walk me through it step by step.
 ```
 
-Claude will read the repo's diagnostics and walk you through. If it hits something it can't resolve, ping Matt.
+Claude will read the repo's diagnostics and walk you through. If it hits something it can't resolve, ping Ziga.
 
 ---
 

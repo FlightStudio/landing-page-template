@@ -58,7 +58,7 @@ fi
 
 if [ "$SKIP_CONFIG" = false ]; then
   echo "Path to the GCP service account JSON key file (steven-warehouse-dev)."
-  echo "  (Ask Matt for this file if you don't have it.)"
+  echo "  (Ask Ziga for this file if you don't have it.)"
   read -p "  Service account path: " SA_PATH
 
   if [ -n "$SA_PATH" ] && [ ! -f "$SA_PATH" ]; then
