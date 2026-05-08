@@ -333,22 +333,49 @@ imports/<campaign-slug>/
 ```
 If they paste the HTML inline in chat instead, save it to `imports/<campaign-slug>/index.html` yourself. Same for asset URLs they share — download to that folder and update the HTML's `src=`/`href=` to local paths.
 
-**Step 2 — Inspect + adapt the HTML to Flight Studio standards.**
+**Step 2a — ASK the marketer about brand visuals (non-negotiable question, ask before adapting).**
 
-Read the file. Identify what's in it: hero / form / CTA buttons / footer / scripts. Then make these adaptations directly in `index.html`:
+Flight Studio has ~13 brand domains but only 2 fully-presetted brands today (`doac`, `wntt`) — plus `hsr` as a stub. Most brands don't have a preset, so the imported-HTML flow can't assume one.
 
-- **Klaviyo / Beehiiv signup integration** (only if the page has a form or is a signup page):
-   - For Klaviyo brands: replace any existing form with a small `<form>` whose submit handler POSTs to Klaviyo's Client API at `https://a.klaviyo.com/client/subscriptions/?company_id=<COMPANY_ID>` (the company ID comes from the brand preset). Mirror the structure in `src/klaviyo.js` — `consent_source`, `landing_page`, `$source` (apex domain), `[<slug>_variant]`. Inline JS is fine here; this is a static HTML page.
-   - For HSR (Beehiiv): the form's submit POSTs to `https://campaign-studio-30219985459.europe-west1.run.app/api/subscribe-beehiiv` with `email` + UTM trio + `tags`. The proxy holds the API key — never embed Beehiiv keys in the HTML.
-- **Analytics in `<head>`**:
-   - RudderStack: inline the SDK loader using `RUDDERSTACK_WRITE_KEY = "3BDjPVPbfZ0thaBZdJQl9KMQOp2"` and the dataplane URL.
-   - Meta Pixel: inline the standard pixel snippet using the brand preset's `metaPixelId`. Skip if the brand has none.
-   - Cookie consent banner is optional for imported HTML (the existing React `CookieConsent.jsx` doesn't apply). For now, don't gate analytics — record consent later if marketing requires.
+Before touching the HTML, ASK the marketer this single question:
+
+> "Quick branding check — three options for how I style this page:
+>
+> 1. **Match an existing brand preset** — DOAC (black + red, Inter font) or WNTT (teal + blush + caramel, Figtree font). I'll inject that brand's fonts and colours over your HTML.
+> 2. **Use your existing styling as-is** — I keep your fonts and colours exactly as the source HTML has them, and only add the Flight Studio plumbing (analytics, signup, OG tags). Pick this if your HTML already looks the way you want.
+> 3. **Bring your own brand** — drop the logo file in `imports/<slug>/`, give me hex codes for primary / accent / background colours, and the Google Fonts family name(s) you want to use. I'll style the page with those. (For non-presetted brands like Behind The Diary, Begin Again, The 33rd Law, etc. — most of our IPs.)"
+
+Wait for their answer. If option 3, also ask:
+- "Do you want me to also create a permanent brand preset (`src/brands/<key>.js`) so future campaigns for this brand match these visuals automatically? Or is this a one-off — just style this campaign and skip the preset?"
+- One-off is fine and faster. Permanent preset is cleaner if there'll be more campaigns for this brand.
+
+**Step 2b — Adapt the HTML.**
+
+Read the file. Identify what's in it: hero / form / CTA buttons / footer / scripts. Then make adaptations in two layers:
+
+#### (i) ALWAYS inject — non-negotiable plumbing, same for every brand and every campaign
+
+These are not optional and not asked about. They go in on every imported-HTML deploy:
+
+- **Subscriber-provider signup integration** (only if the page has a form or is a signup page — the provider was decided at Phase 1):
+   - For **Klaviyo** brands: replace any existing form with a small `<form>` whose submit handler POSTs to Klaviyo's Client API at `https://a.klaviyo.com/client/subscriptions/?company_id=<COMPANY_ID>`. Mirror the structure in `src/klaviyo.js` — `consent_source`, `landing_page`, `$source` (apex domain), `[<slug>_variant]`. Inline JS is fine here; this is a static HTML page.
+   - For **HSR (Beehiiv)**: the form's submit POSTs to `https://campaign-studio-30219985459.europe-west1.run.app/api/subscribe-beehiiv` with `email` + UTM trio + `tags`. The proxy holds the API key — never embed Beehiiv keys in the HTML.
+- **RudderStack analytics in `<head>`**: inline the SDK loader using `RUDDERSTACK_WRITE_KEY = "3BDjPVPbfZ0thaBZdJQl9KMQOp2"` and the dataplane URL `https://stevenllumrcor.dataplane.rudderstack.com`. **Same write key for every brand** — do not change.
+- **Meta Pixel** (if the brand preset defines one): inline the standard pixel snippet using `metaPixelId`. Skip if the brand has no pixel — that's fine.
 - **OG tags in `<head>`**: `og:title`, `og:description`, `og:image`, `og:url`, plus `twitter:card`, `twitter:title`, `twitter:description`, `twitter:image`. Build from the brief.
-- **Font import**: pull the brand's Google Fonts URL from the brand preset and inject as a `<link>` in `<head>`. Apply the brand's headline + body fonts via inline `style` or a small `<style>` block.
-- **Brand colours**: if the marketer wants the page to match brand styling, swap colours in the HTML to match the brand preset's `theme.colors`. Don't be obsessive — preserve their layout, only fix glaring brand-mismatch (e.g. red CTA on a teal-only WNTT page).
-- **Mobile responsiveness**: confirm there's a `<meta name="viewport" content="width=device-width, initial-scale=1.0">`. If their HTML uses fixed widths, add a small responsive override.
-- **Cleanups**: strip out anything pointing to localhost / file:// URLs / their previous host. Make all `src=`/`href=` either fully-qualified absolute URLs or relative-to-repo paths.
+- **Mobile viewport**: confirm `<meta name="viewport" content="width=device-width, initial-scale=1.0">` exists. If their HTML uses fixed widths, add a small responsive override.
+- **Cleanups**:
+   - Strip third-party tracking the marketer's HTML brought along (Google Analytics, HubSpot, Hotjar, etc.) — ask before keeping any.
+   - Strip references to localhost / `file://` URLs / their previous host.
+   - Make all `src=`/`href=` either fully-qualified absolute URLs or relative-to-repo paths.
+
+#### (ii) Brand visuals — only what the marketer chose in Step 2a
+
+Apply ONE of the following based on their answer:
+
+- **Option 1 — Match preset**: Inject the brand preset's `theme.fonts.googleFontsUrl` as a `<link>` in `<head>`. Override existing fonts in the HTML with the preset's headline / body / label fonts via inline `<style>`. Swap any colour values in the HTML to match the preset's `theme.colors` — don't be obsessive, focus on logo/CTA/headlines.
+- **Option 2 — Keep their styling**: Don't touch fonts or colours. The marketer's HTML already looks the way they want.
+- **Option 3 — Custom branding**: Drop the logo at `imports/<slug>/logo.png` (or whatever filename they sent — match what `<img src=>` in the HTML expects). Inject the Google Fonts URL for the family they specified. Apply the colour hex codes they gave to the relevant CSS — primary on CTA buttons, accent on links/highlights, background on body. If they also asked for a permanent preset, copy the values into a new `src/brands/<key>.js` mirroring the doac.js/wntt.js shape.
 
 **Step 3 — Local preview** (sanity check before deploy):
 
