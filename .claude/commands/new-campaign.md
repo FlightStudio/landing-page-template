@@ -1,6 +1,29 @@
 You are setting up a new landing page campaign. Read `.claude/commands/CAMPAIGN_LEARNINGS.md` for deeper context and rationale, and apply those learnings throughout this process.
 
-Guide the user through these six phases. Move through them naturally — don't number them or say "Phase 1". Just have a conversation.
+Guide the user through these phases. Move through them naturally — don't number them or say "Phase 1". Just have a conversation.
+
+## Pre-flight: Verify the MCP is connected (ALWAYS the first thing — never skip)
+
+Before asking the marketer any campaign questions, **silently check that the Campaign Studio MCP tools are available in this Claude Code session**. The tools are how you actually deploy anything — without them, the rest of the conversation is pointless.
+
+How to check:
+
+1. Look at your tool inventory — are tools like `list_brands`, `deploy_landing_page`, `setup_domain`, `upload_dist`, `deploy_custom_page` present? You can confirm by silently calling `list_brands` (it's read-only and returns the brand presets).
+2. **If yes** — proceed to Phase 1.
+3. **If no — STOP. Don't ask any campaign questions.** Tell the marketer:
+
+   > "Before we build anything, I need to confirm the Campaign Studio MCP is connected — right now I can't see the deploy tools in this session. To fix it:
+   >
+   > 1. From the repo root, run: `./scripts/setup.sh`
+   > 2. If it complains about missing credentials, ask Matt to DM you the service account JSON file and drop it in `mcp-server/credentials/` — then re-run setup.sh.
+   > 3. **Restart Claude Code** (close and reopen the editor) — Claude Code caches the MCP connector list at session start, so changes from setup.sh need a fresh session to take effect.
+   > 4. Re-open this folder and run `/new-campaign` again.
+   >
+   > Once `list_brands` works for me I'll know we're good."
+
+   This check exists because the most common failure pattern is: marketer clones the repo, opens it in Claude Code, runs `/new-campaign`, gets all the way to deploy time, and only then discovers the MCP isn't wired up. Catching it before any campaign work means no wasted brief.
+
+4. Run this check at the **start of every `/new-campaign` invocation**, even within the same Claude Code session — schemas can refresh and the cost of a single `list_brands` call is trivial.
 
 ## Phase 0: Template offer (ask before collecting the brief)
 
@@ -41,12 +64,13 @@ Routing rules — flag and confirm if the answer doesn't match the brand:
 - "Is this a signup page, a quiz, a competition entry, or something else?"
 - "Is there a spec document or brief I should work from?"
 
-**Two deploy paths exist** — pick the right one based on the answer:
+**Three deploy paths exist** — pick the right one based on the answer:
 
 - **Standard signup / quiz** (any brand, signup form, A/B variants, Klaviyo or Beehiiv): use the scaffold + `deploy_landing_page`. This is the default — most campaigns. Both Klaviyo and Beehiiv brands run on this path.
-- **Custom-coded design** (bespoke layout, Eventbrite checkout, marketer dropped a complete project from Lovable/v0/Figma, brand outside DOAC/WNTT/HSR, no signup form at all): skip the scaffold entirely. Make sure the project has a working `npm run build`, then deploy with `upload_dist` + `deploy_custom_page` (see Phase 5 → Custom design path). Phase 0 templates and Phase 2 scaffold do not apply on this branch.
+- **Custom-coded design** (bespoke layout, Eventbrite checkout, marketer dropped a complete Vite/Next/React project from Lovable/v0/Figma): skip the scaffold entirely. Project must have a working `npm run build`. Deploy with `upload_dist` + `deploy_custom_page` (see Phase 5 → Custom design path). Phase 0 templates and Phase 2 scaffold do not apply on this branch.
+- **Imported HTML** (marketer has a single `.html` file from Claude Artifacts, Cloth, Webflow export, an email designer, or hand-written by them): they don't have a build pipeline; they just have HTML. We adapt it to Flight Studio standards in-place and deploy as a static page. See Phase 5 → Imported HTML path.
 
-If unsure, ask: "Is this a normal signup/quiz, or a custom-coded design you've already built or are building outside the signup template?"
+If unsure, ask: "Is this a normal signup/quiz, a complete project you've built outside this folder, or a single HTML file you'd like us to ship as-is?"
 
 ### Brand & Basics
 - Which brand? Check `src/brands/` for available presets (currently **doac**, **wntt**, **hsr** as a minimal stub).
@@ -210,7 +234,7 @@ Before deploying, run through these checks:
 
 ## Phase 5: Deploy
 
-Two paths. Pick the one matching the campaign type chosen in Phase 1.
+Three paths. Pick the one matching the campaign type chosen in Phase 1.
 
 ### Standard signup path (DOAC / WNTT)
 
@@ -246,6 +270,69 @@ For bespoke campaigns where the marketer has a complete locally-built project (V
 - `update_custom_page` deploys whatever is in the LATEST `upload_dist` call. If the marketer edits code but doesn't re-build and re-upload, nothing changes on the live site.
 - Vite ships source maps by default. For sensitive code, set `build.sourcemap: false` in `vite.config.js` before building.
 - Brand presets, Klaviyo wiring, and the Phase 6 save-as-template flow do NOT apply on this path.
+
+### Imported HTML path
+
+The marketer has a single `.html` file from somewhere else (Claude Artifacts, Cloth, Webflow export, ChatGPT, an email designer, hand-written). They want it shipped as a Flight Studio page on a real subdomain. The HTML almost certainly doesn't include analytics, signup integration, or brand-conformant assets — we adapt it in place, package it as a static dist, and deploy via `deploy_custom_page`.
+
+**Step 1 — Get the HTML and any assets into the repo.**
+
+Ask the marketer to drop their files in `imports/<campaign-slug>/` at the repo root. Convention:
+```
+imports/<campaign-slug>/
+├── index.html        ← their HTML, renamed to index.html
+├── *.png / *.jpg     ← any images the HTML references
+└── *.css / *.js      ← any extracted style/script files
+```
+If they paste the HTML inline in chat instead, save it to `imports/<campaign-slug>/index.html` yourself. Same for asset URLs they share — download to that folder and update the HTML's `src=`/`href=` to local paths.
+
+**Step 2 — Inspect + adapt the HTML to Flight Studio standards.**
+
+Read the file. Identify what's in it: hero / form / CTA buttons / footer / scripts. Then make these adaptations directly in `index.html`:
+
+- **Klaviyo / Beehiiv signup integration** (only if the page has a form or is a signup page):
+   - For Klaviyo brands: replace any existing form with a small `<form>` whose submit handler POSTs to Klaviyo's Client API at `https://a.klaviyo.com/client/subscriptions/?company_id=<COMPANY_ID>` (the company ID comes from the brand preset). Mirror the structure in `src/klaviyo.js` — `consent_source`, `landing_page`, `$source` (apex domain), `[<slug>_variant]`. Inline JS is fine here; this is a static HTML page.
+   - For HSR (Beehiiv): the form's submit POSTs to `https://campaign-studio-30219985459.europe-west1.run.app/api/subscribe-beehiiv` with `email` + UTM trio + `tags`. The proxy holds the API key — never embed Beehiiv keys in the HTML.
+- **Analytics in `<head>`**:
+   - RudderStack: inline the SDK loader using `RUDDERSTACK_WRITE_KEY = "3BDjPVPbfZ0thaBZdJQl9KMQOp2"` and the dataplane URL.
+   - Meta Pixel: inline the standard pixel snippet using the brand preset's `metaPixelId`. Skip if the brand has none.
+   - Cookie consent banner is optional for imported HTML (the existing React `CookieConsent.jsx` doesn't apply). For now, don't gate analytics — record consent later if marketing requires.
+- **OG tags in `<head>`**: `og:title`, `og:description`, `og:image`, `og:url`, plus `twitter:card`, `twitter:title`, `twitter:description`, `twitter:image`. Build from the brief.
+- **Font import**: pull the brand's Google Fonts URL from the brand preset and inject as a `<link>` in `<head>`. Apply the brand's headline + body fonts via inline `style` or a small `<style>` block.
+- **Brand colours**: if the marketer wants the page to match brand styling, swap colours in the HTML to match the brand preset's `theme.colors`. Don't be obsessive — preserve their layout, only fix glaring brand-mismatch (e.g. red CTA on a teal-only WNTT page).
+- **Mobile responsiveness**: confirm there's a `<meta name="viewport" content="width=device-width, initial-scale=1.0">`. If their HTML uses fixed widths, add a small responsive override.
+- **Cleanups**: strip out anything pointing to localhost / file:// URLs / their previous host. Make all `src=`/`href=` either fully-qualified absolute URLs or relative-to-repo paths.
+
+**Step 3 — Local preview** (sanity check before deploy):
+
+```bash
+cd imports/<campaign-slug>
+npx serve .   # or `python3 -m http.server`
+```
+
+Open `http://localhost:3000` and click through. Submit the form — verify it actually posts to Klaviyo / the Beehiiv proxy.
+
+**Step 4 — Package as a static dist + deploy** (uses the existing `deploy_custom_page` flow):
+
+```bash
+cd imports/<campaign-slug>
+tar -czf - . | base64 > /tmp/imported-dist.b64
+```
+
+Then call `upload_dist` with `serviceName: "<campaign-slug>"` + the base64 contents, and `deploy_custom_page` with the same serviceName + `pageTitle`. Returns a `*.run.app` URL in ~30s.
+
+**Step 5 — Iterate** as the marketer requests changes. Edit `imports/<campaign-slug>/index.html` directly, re-run the tar + upload + `update_custom_page` cycle. Same URL, new revision.
+
+**Step 6 — Custom domain**: `setup_domain` works identically here.
+
+**Step 7 — Teardown** when testing is done: `teardown_custom_page` with `confirm: true`.
+
+**Important caveats** for the imported-HTML path:
+
+- The page is fully self-contained static HTML. No React, no Vite. So features that depend on the React components (cookie consent banner, complex variant routing logic, the `FORM_FIELDS` schema) don't apply.
+- A/B variants on imported HTML need different files (`index-headline-a.html`, `index-headline-b.html`) and either separate Cloud Run services or a tiny redirect script in `index.html`. Discuss with the marketer if they want A/B; if not, skip variants entirely on this path.
+- The marketer's HTML often includes inline analytics from another platform (Google Analytics, HubSpot, Hotjar). Strip those by default; ask before keeping any third-party tracking that isn't in our standard stack.
+- If their HTML is more than a single page (multiple `.html` files linked together), you can include all of them in `imports/<campaign-slug>/`; the static deploy serves them at their relative paths. Single-page is the common case.
 
 ## Phase 6: Offer to save as a template
 

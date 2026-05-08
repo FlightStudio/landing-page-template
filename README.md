@@ -49,6 +49,16 @@ If you'd rather use the Claude Desktop app:
 
 Both paths give you the same 11 tools. Pick whichever editor you're already using.
 
+### Verify before you start (do this on every new clone)
+
+The most common failure pattern is: clone repo → open in Claude Code → start `/new-campaign` → get all the way to deploy → discover the MCP isn't actually wired up. Catch it up front:
+
+1. From the repo root, run `./scripts/setup.sh`. Re-run if it complains about missing credentials (drop the SA file Matt sent in `mcp-server/credentials/` and try again).
+2. **Restart Claude Code** (close and reopen) so it picks up the freshly-written `.mcp.json`.
+3. Open the folder again in Claude Code, type `/new-campaign`. Claude's first action is a pre-flight check that verifies the MCP tools are visible — if they're not, it'll stop and walk you through fixing it before any campaign work starts.
+
+If `/new-campaign` skips straight to questions about brand/Klaviyo without confirming the MCP first, it's an old version of the slash command — `git pull` to refresh.
+
 ---
 
 ## Building a campaign
@@ -106,6 +116,8 @@ Under the hood Claude will:
 **Quiz** — email gate followed by multiple-choice questions, scoring, and personalised results. Good for personality quizzes, recommendation engines, interactive content.
 
 **Custom design** — anything bespoke that doesn't fit the signup-page mould (Eventbrite checkout, brand outside DOAC/WNTT, hand-coded layout, page exported from Lovable / v0 / Figma). Build the project locally with `npm run build`, then Claude uses `upload_dist` + `deploy_custom_page` to ship it to the same Cloud Run / domain stack as standard pages. No Klaviyo wiring, no scaffold. See [MCP_CUSTOM_PAGE_PLAN.md](MCP_CUSTOM_PAGE_PLAN.md) for the architecture.
+
+**Imported HTML** — you have a single `.html` file from somewhere else (Claude Artifacts, Cloth, Webflow export, ChatGPT, an email designer) and you want it shipped as a Flight Studio page on a real subdomain. Drop the file (and any images it references) in `imports/<campaign-slug>/` at the repo root. When you describe what you've got to Claude, it'll adapt the HTML to Flight Studio standards — wire up the right Klaviyo / Beehiiv signup, inject analytics + brand fonts + OG tags, fix obvious brand-style mismatches — then package it as a static dist and deploy via `deploy_custom_page`. No build pipeline required on your end; the marketer's HTML stays the source of truth through every iteration.
 
 ### Subscriber providers (signup pages and quizzes)
 
