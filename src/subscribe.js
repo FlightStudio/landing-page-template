@@ -1,5 +1,6 @@
 import { subscribeToKlaviyo, identifyKlaviyo } from "./klaviyo";
 import { subscribeToBeehiiv } from "./beehiiv";
+import { ensureRudderStackSDK } from "./consent";
 import {
   BRAND,
   CAMPAIGN_NAME,
@@ -20,6 +21,20 @@ import {
  * @returns {Promise<{ ok: boolean, status: number, error?: string }>}
  */
 export async function subscribe({ email, variant, values = {} }) {
+  // ── Pre-subscribe RudderStack identity link + capture event ────────
+  // Fires BEFORE any subscriber-provider call so RudderStack ties the
+  // anonymous_id to the email upstream of Klaviyo / Beehiiv. The stub
+  // queues these if the SDK isn't fully loaded yet — safe to call inline.
+  try {
+    ensureRudderStackSDK();
+    if (window.rudderanalytics) {
+      window.rudderanalytics.identify(email, { email });
+      window.rudderanalytics.track("Email Captured", { email });
+    }
+  } catch {
+    // Analytics failures must not block the subscribe.
+  }
+
   const provider = BRAND?.provider || "klaviyo"; // default for back-compat with brands that pre-date this field
 
   if (provider === "klaviyo") {
