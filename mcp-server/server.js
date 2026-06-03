@@ -29,11 +29,53 @@ const GCS_BUCKET = process.env.GCS_BUCKET || `${GCP_PROJECT}_campaign-studio`;
 const TEMPLATE_DIR = STDIO_MODE ? resolve(__dirname, "..") : "/template";
 const PORT = parseInt(process.env.PORT || "8080", 10);
 
-// ── Beehiiv proxy config (HSR brand only) ───────────────────────────────────
-// API key is server-side only — never enters the campaign bundle. See HSR_BEEHIIV_PLAN.md §3.2.
-const BEEHIIV_API_KEY = process.env.BEEHIIV_API_KEY;
+// ── Beehiiv proxy config (multi-publication) ────────────────────────────────
+// API keys are server-side only — never enter the campaign bundle. See HSR_BEEHIIV_PLAN.md §3.2.
+// Each Beehiiv brand has its OWN publication + API key. The proxy routes each
+// subscribe to the right publication based on the publication_id the campaign
+// page sends (BRAND.beehiiv.publicationId). Publication IDs are mapped to their
+// keys in the registry below; a campaign can only post to a publication that's
+// been explicitly wired here, so an arbitrary id can't reach someone else's list.
 const BEEHIIV_BASE = "https://api.beehiiv.com/v2";
+
+// HSR — the original single-publication env vars (kept for back-compat).
+const BEEHIIV_API_KEY = process.env.BEEHIIV_API_KEY;
 const BEEHIIV_PUBLICATION_ID = process.env.BEEHIIV_PUBLICATION_ID || "pub_ea72d441-200a-486d-b0e2-34b65bc386b8";
+
+// Registry: publicationId → API key. Add a brand by giving it a pub id + key (via env).
+function buildBeehiivRegistry() {
+  const reg = new Map();
+  // HSR (back-compat path)
+  if (BEEHIIV_API_KEY) reg.set(BEEHIIV_PUBLICATION_ID, BEEHIIV_API_KEY);
+  // Obsession — set BEEHIIV_PUBLICATION_ID_OBSESSION + BEEHIIV_API_KEY_OBSESSION in env
+  // once the publication exists. Until both are present the proxy returns a clean
+  // "publication not configured" for Obsession signups (nothing silently lands in HSR).
+  if (process.env.BEEHIIV_PUBLICATION_ID_OBSESSION && process.env.BEEHIIV_API_KEY_OBSESSION) {
+    reg.set(process.env.BEEHIIV_PUBLICATION_ID_OBSESSION, process.env.BEEHIIV_API_KEY_OBSESSION);
+  }
+  // Escape hatch for any further brands: BEEHIIV_PUBLICATIONS_JSON = {"pub_xxx":"key_xxx", ...}
+  try {
+    const extra = JSON.parse(process.env.BEEHIIV_PUBLICATIONS_JSON || "{}");
+    for (const [pub, key] of Object.entries(extra)) {
+      if (pub && key) reg.set(pub, key);
+    }
+  } catch (err) {
+    console.warn(`[beehiiv] Ignoring malformed BEEHIIV_PUBLICATIONS_JSON: ${err.message}`);
+  }
+  return reg;
+}
+const BEEHIIV_REGISTRY = buildBeehiivRegistry();
+// Publication used when a campaign page doesn't send a publication_id
+// (older deployed HSR pages predate the client sending it).
+const BEEHIIV_DEFAULT_PUBLICATION_ID = BEEHIIV_PUBLICATION_ID;
+
+// Resolve { publicationId, apiKey } for a subscribe request, or null if the
+// requested publication isn't wired on this server.
+function resolveBeehiivPublication(requestedId) {
+  const pubId = requestedId || BEEHIIV_DEFAULT_PUBLICATION_ID;
+  const apiKey = BEEHIIV_REGISTRY.get(pubId);
+  return apiKey ? { publicationId: pubId, apiKey } : null;
+}
 
 // Resolve mcp-server-local templates directory (used by buildAndDeployCustom for custom-page mode).
 // Reuses __dirname declared above for STDIO_MODE handling.
@@ -393,6 +435,10 @@ export const CAMPAIGN_SLUG = "${opts.campaignSlug}";
 export const CAMPAIGN_NAME = "${opts.campaignName}";
 export const PAGE_TITLE = "${opts.pageTitle}";
 
+// Which front-end flow to render. "standard" = the single-step signup card.
+// Bespoke flows (e.g. "obsession") branch in LandingPage.jsx.
+export const CAMPAIGN_LAYOUT = "${opts.campaignLayout || "standard"}";
+
 // Beehiiv-only — empty for Klaviyo brands
 export const UTM_SOURCE = "${opts.utmSource || ""}";
 export const UTM_MEDIUM = "${opts.utmMedium || ""}";
@@ -613,14 +659,16 @@ If they want to use a custom image, use upload_asset first, then deploy or updat
 
 SUBSCRIBER PROVIDER — every signup campaign sends subscribers to either Klaviyo or Beehiiv.
 - Klaviyo is the default. Used by DOAC, WNTT, and most brands.
-- Beehiiv is HSR-only (Hot Smart Rich, hsrowntheroom.com).
+- Beehiiv brands: HSR (Hot Smart Rich, hsrowntheroom.com) and Obsession. Each has its OWN
+  Beehiiv publication; the proxy routes signups to the right one by publication id automatically.
 ALWAYS ASK the marketer which one before doing anything else — do not infer from the brand silently.
 - For Klaviyo brands: ask for the Klaviyo list ID (6-char short code from the list URL).
 - For Beehiiv brands: ask for utm_source, utm_medium, and utm_campaign — three short identifiers
   that flow through to subscribers as UTM tracking. Don't ask for a Klaviyo list ID.
 If the marketer's provider answer doesn't match the brand they pick (e.g. "Klaviyo + HSR" or
-"Beehiiv + DOAC"), pause and confirm rather than guessing — there is exactly ONE Beehiiv brand
-(HSR) and the rest are Klaviyo.
+"Beehiiv + DOAC"), pause and confirm rather than guessing — the Beehiiv brands are HSR and
+Obsession; the rest are Klaviyo. The custom-field list below is HSR's publication; Obsession has
+its own fields, so don't assume an HSR field exists on Obsession's publication.
 
 FORM FIELDS — the signup form is config-driven via the formFields parameter on deploy_landing_page.
 - ASK the marketer what fields they want. If they don't say, default to firstName + email + phone.
@@ -673,7 +721,7 @@ META PIXEL — this is already in the brand preset. Don't ask about it unless it
 
 function createMcpServer() {
   const s = new McpServer(
-    { name: "campaign-studio", version: "2.3.0" },
+    { name: "campaign-studio", version: "2.3.1" },
     { instructions: SERVER_INSTRUCTIONS }
   );
   registerTools(s);
@@ -698,7 +746,7 @@ server.tool(
   `Create and deploy a new landing page to Cloud Run. Returns a live preview URL in about 2 minutes.
 The campaign config is stored so you can update it later with update_landing_page.`,
   {
-    brand: z.string().describe("Brand preset key: 'doac', 'wntt', or 'hsr'. HSR uses Beehiiv (utm fields required); others use Klaviyo (klaviyoListId required)."),
+    brand: z.string().describe("Brand preset key: 'doac', 'wntt', 'hsr', or 'obsession'. HSR and Obsession use Beehiiv (utm fields required); others use Klaviyo (klaviyoListId required)."),
     serviceName: z.string().describe("Cloud Run service name (lowercase, hyphenated), e.g. 'doac-london-meetgreet'"),
     campaignSlug: z.string().describe("Lowercase hyphenated slug for tracking, e.g. 'doac-london-meetgreet'"),
     campaignName: z.string().describe("Campaign name for tracking"),
@@ -1282,13 +1330,27 @@ app.post("/api/subscribe-beehiiv", express.json({ limit: "10kb" }), async (req, 
     return res.status(429).json({ error: "Too many requests" });
   }
 
-  if (!BEEHIIV_API_KEY) {
+  if (BEEHIIV_REGISTRY.size === 0) {
     return res.status(503).json({ error: "Beehiiv not configured on this server" });
   }
 
-  const { email, utm_source, utm_medium, utm_campaign, referring_site, tags, custom_fields } = req.body || {};
+  const { email, publication_id, utm_source, utm_medium, utm_campaign, referring_site, tags, custom_fields } = req.body || {};
   if (!email || typeof email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return res.status(400).json({ error: "Invalid email" });
+  }
+
+  // Route to the publication this campaign declares. Validate the id shape, then
+  // look up its key. An unknown / unconfigured publication is rejected outright,
+  // so a signup can never silently land in a different brand's audience.
+  if (publication_id !== undefined && (typeof publication_id !== "string" || !/^pub_[A-Za-z0-9-]+$/.test(publication_id))) {
+    return res.status(400).json({ error: "Invalid publication_id" });
+  }
+  const pub = resolveBeehiivPublication(publication_id);
+  if (!pub) {
+    return res.status(503).json({
+      error: "Publication not configured on this server",
+      publication_id: publication_id || BEEHIIV_DEFAULT_PUBLICATION_ID,
+    });
   }
   if (tags !== undefined && (!Array.isArray(tags) || tags.some((t) => typeof t !== "string" || t.length === 0 || t.length > 200))) {
     return res.status(400).json({ error: "Invalid tags" });
@@ -1334,10 +1396,10 @@ app.post("/api/subscribe-beehiiv", express.json({ limit: "10kb" }), async (req, 
   // Step 1: create the subscription
   let createBody;
   try {
-    const upstream = await fetch(`${BEEHIIV_BASE}/publications/${BEEHIIV_PUBLICATION_ID}/subscriptions`, {
+    const upstream = await fetch(`${BEEHIIV_BASE}/publications/${pub.publicationId}/subscriptions`, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${BEEHIIV_API_KEY}`,
+        Authorization: `Bearer ${pub.apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -1370,11 +1432,11 @@ app.post("/api/subscribe-beehiiv", express.json({ limit: "10kb" }), async (req, 
   if (subscriptionId && Array.isArray(tags) && tags.length) {
     try {
       await fetch(
-        `${BEEHIIV_BASE}/publications/${BEEHIIV_PUBLICATION_ID}/subscriptions/${subscriptionId}/tags`,
+        `${BEEHIIV_BASE}/publications/${pub.publicationId}/subscriptions/${subscriptionId}/tags`,
         {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${BEEHIIV_API_KEY}`,
+            Authorization: `Bearer ${pub.apiKey}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({ tags }),
@@ -1430,19 +1492,39 @@ app.all("/mcp", authMiddleware, async (req, res) => {
       if (transport) {
         await transport.handleRequest(req, res);
       } else {
-        res.status(400).json({ error: "No transport found for session" });
+        // Per MCP Streamable HTTP spec — stale/unknown session: return 404
+        // so the client SDK reinitialises rather than retrying with the dead id.
+        res.status(404).json({
+          jsonrpc: "2.0",
+          error: { code: -32001, message: "Session not found. Reinitialize." },
+        });
       }
       return;
     }
 
     // POST — check if there's an existing session
     const sessionId = req.headers["mcp-session-id"];
-    if (sessionId && transports[sessionId]) {
-      await transports[sessionId].handleRequest(req, res);
+    if (sessionId) {
+      if (transports[sessionId]) {
+        // Known session — use existing transport.
+        await transports[sessionId].handleRequest(req, res);
+        return;
+      }
+      // Client sent a session-id we don't recognise. Happens when the Cloud
+      // Run instance that held the in-memory `transports` map was rotated
+      // (server redeploy, scale-down, idle eviction). Returning 404 tells the
+      // client SDK to re-initialise; falling through to "new transport" here
+      // would let the SDK send a tools/call without a prior initialize on
+      // this instance, surfacing as JSON-RPC -32000 "Server not initialized"
+      // (the bug that broke marketers' sessions after every redeploy).
+      res.status(404).json({
+        jsonrpc: "2.0",
+        error: { code: -32001, message: "Session not found. Reinitialize." },
+      });
       return;
     }
 
-    // New session
+    // Fresh request (no session-id in headers) — start a new session.
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => randomUUID(),
     });
